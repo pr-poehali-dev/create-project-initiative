@@ -74,7 +74,11 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
     const created: Assignee = typeof raw === "string" ? JSON.parse(raw) : raw;
     setLoading(false);
     if (created.id) {
-      setSuccess(created);
+      if (created.email && ADMIN_EMAILS.includes(created.email.toLowerCase())) {
+        onAdmin();
+      } else {
+        setSuccess(created);
+      }
     } else {
       setError("Не удалось зарегистрироваться. Попробуй ещё раз.");
     }
@@ -91,7 +95,11 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
     const found = list.find(a => a.tag.toLowerCase() === t.toLowerCase());
     setLoading(false);
     if (found) {
-      onEnter(found);
+      if (found.email && ADMIN_EMAILS.includes(found.email.toLowerCase())) {
+        onAdmin();
+      } else {
+        onEnter(found);
+      }
     } else {
       setError("Тег не найден. Проверь правильность или зарегистрируйся.");
     }
@@ -155,12 +163,7 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
                 <Icon name="LogIn" size={18} />
                 У меня есть тег — войти
               </button>
-              <button
-                onClick={onAdmin}
-                className="w-full text-gray-400 text-sm py-2 hover:text-[#1E3A5F] transition-colors"
-              >
-                Войти как постановщик
-              </button>
+
             </div>
           </>
         )}
