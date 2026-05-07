@@ -10,6 +10,7 @@ interface Assignee {
   id: number;
   name: string;
   tag: string;
+  email?: string;
 }
 
 interface Task {
@@ -54,8 +55,8 @@ export default function Index() {
 
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", assignee_id: "" as string | number, deadline: "", status: "Новая" as Status });
-  const [assigneeForm, setAssigneeForm] = useState({ name: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", assignee_id: "" as string | number, deadline: "", status: "Новая" as Status, setter: "7@dosfond.ru" });
+  const [assigneeForm, setAssigneeForm] = useState({ name: "", email: "" });
   const [saving, setSaving] = useState(false);
   const [newTag, setNewTag] = useState<string | null>(null);
 
@@ -92,7 +93,7 @@ export default function Index() {
 
   function openAddTask() {
     setEditTask(null);
-    setTaskForm({ title: "", assignee_id: "", deadline: "", status: "Новая" });
+    setTaskForm({ title: "", assignee_id: "", deadline: "", status: "Новая", setter: "7@dosfond.ru" });
     setModalMode("task");
   }
 
@@ -103,12 +104,13 @@ export default function Index() {
       assignee_id: task.assignee?.id ?? "",
       deadline: task.deadline,
       status: task.status,
+      setter: "7@dosfond.ru",
     });
     setModalMode("task");
   }
 
   function openAddAssignee() {
-    setAssigneeForm({ name: "" });
+    setAssigneeForm({ name: "", email: "" });
     setNewTag(null);
     setModalMode("assignee");
   }
@@ -121,6 +123,7 @@ export default function Index() {
       deadline: taskForm.deadline,
       status: taskForm.status,
       assignee_id: taskForm.assignee_id || null,
+      setter: taskForm.setter,
     };
     if (editTask) {
       body.id = editTask.id;
@@ -144,7 +147,7 @@ export default function Index() {
     const res = await fetch(API_ASSIGNEES, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: assigneeForm.name }),
+      body: JSON.stringify({ name: assigneeForm.name, email: assigneeForm.email || null }),
     });
     const raw = await res.json();
     const created: Assignee = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -388,6 +391,17 @@ export default function Index() {
                   {ALL_STATUSES.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Постановщик</label>
+                <select
+                  value={taskForm.setter}
+                  onChange={e => setTaskForm(f => ({ ...f, setter: e.target.value }))}
+                  className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
+                >
+                  <option value="7@dosfond.ru">7@dosfond.ru</option>
+                  <option value="1@dosfond.ru">1@dosfond.ru</option>
+                </select>
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -446,15 +460,25 @@ export default function Index() {
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Полное имя</label>
                     <input
                       value={assigneeForm.name}
-                      onChange={e => setAssigneeForm({ name: e.target.value })}
+                      onChange={e => setAssigneeForm(f => ({ ...f, name: e.target.value }))}
                       placeholder="Фамилия Имя Отчество"
                       className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
                       onKeyDown={e => { if (e.key === "Enter") saveAssignee(); }}
                     />
                   </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Email для уведомлений</label>
+                    <input
+                      type="email"
+                      value={assigneeForm.email}
+                      onChange={e => setAssigneeForm(f => ({ ...f, email: e.target.value }))}
+                      placeholder="example@mail.ru"
+                      className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                    />
+                  </div>
                   <div className="bg-[#F4F6F9] rounded p-3 text-[11px] text-gray-500 flex items-start gap-2">
                     <Icon name="Info" size={13} className="text-gray-400 mt-0.5 shrink-0" />
-                    <span>Тег генерируется автоматически на основе имени и будет показан после регистрации</span>
+                    <span>Тег генерируется автоматически. При указании email исполнитель будет получать письма о новых задачах</span>
                   </div>
                 </div>
 

@@ -37,11 +37,12 @@ def generate_tag(name: str, existing_tags: list) -> str:
     return f"@{base}{i}"
 
 def handler(event: dict, context) -> dict:
-    """CRUD для исполнителей задач."""
+    """CRUD для исполнителей задач. Поддерживает поле email."""
     cors = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
+        'Content-Type': 'application/json',
     }
 
     if event.get('httpMethod') == 'OPTIONS':
@@ -52,15 +53,16 @@ def handler(event: dict, context) -> dict:
     cur = conn.cursor()
 
     if method == 'GET':
-        cur.execute("SELECT id, name, tag, created_at FROM assignees ORDER BY name")
+        cur.execute("SELECT id, name, tag, email, created_at FROM assignees ORDER BY name")
         rows = cur.fetchall()
-        data = [{'id': r[0], 'name': r[1], 'tag': r[2], 'created_at': str(r[3])} for r in rows]
+        data = [{'id': r[0], 'name': r[1], 'tag': r[2], 'email': r[3], 'created_at': str(r[4])} for r in rows]
         conn.close()
         return {'statusCode': 200, 'headers': {**cors, 'Content-Type': 'application/json'}, 'body': json.dumps(data, ensure_ascii=False)}
 
     if method == 'POST':
         body = json.loads(event.get('body') or '{}')
         name = (body.get('name') or '').strip()
+        email = (body.get('email') or '').strip() or None
         if not name:
             conn.close()
             return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'name required'})}
@@ -70,8 +72,8 @@ def handler(event: dict, context) -> dict:
         tag = generate_tag(name, existing_tags)
 
         cur.execute(
-            "INSERT INTO assignees (name, tag) VALUES (%s, %s) RETURNING id, name, tag, created_at",
-            (name, tag)
+            "INSERT INTO assignees (name, tag, email) VALUES (%s, %s, %s) RETURNING id, name, tag, email, created_at",
+            (name, tag, email)
         )
         row = cur.fetchone()
         conn.commit()
@@ -79,7 +81,7 @@ def handler(event: dict, context) -> dict:
         return {
             'statusCode': 201,
             'headers': cors,
-            'body': json.dumps({'id': row[0], 'name': row[1], 'tag': row[2], 'created_at': str(row[3])}, ensure_ascii=False)
+            'body': json.dumps({'id': row[0], 'name': row[1], 'tag': row[2], 'email': row[3], 'created_at': str(row[4])}, ensure_ascii=False)
         }
 
     conn.close()

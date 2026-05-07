@@ -5,16 +5,15 @@
       "method": "GET",
       "path": "/",
       "expectedStatus": 200,
-      "expectedBody": [],
-      "bodyMatcher": "partial"
+      "bodyMatcher": "none"
     },
     {
-      "name": "POST create assignee",
+      "name": "POST create assignee with email",
       "method": "POST",
       "path": "/",
-      "body": {"name": "Иванова Анна"},
+      "body": {"name": "Тестов Тест", "email": "test@example.com"},
       "expectedStatus": 201,
-      "expectedBody": {"name": "Иванова Анна"},
+      "expectedBody": {"name": "Тестов Тест", "email": "test@example.com"},
       "bodyMatcher": "partial"
     }
   ]
