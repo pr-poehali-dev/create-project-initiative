@@ -55,7 +55,7 @@ interface WelcomeScreenProps {
 
 function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
   const [mode, setMode] = useState<"choose" | "register" | "login">("choose");
-  const [form, setForm] = useState({ name: "", email: "" });
+  const [form, setForm] = useState({ name: "", email: "", telegram_username: "" });
   const [tag, setTag] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -68,7 +68,7 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
     const res = await fetch(API_ASSIGNEES, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: form.name.trim(), email: form.email.trim() }),
+      body: JSON.stringify({ name: form.name.trim(), email: form.email.trim(), telegram_username: form.telegram_username.trim() || null }),
     });
     const raw = await res.json();
     const created: Assignee = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -193,8 +193,18 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                   placeholder="example@mail.ru"
                   className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Telegram username</label>
+                <input
+                  value={form.telegram_username}
+                  onChange={e => setForm(f => ({ ...f, telegram_username: e.target.value }))}
+                  placeholder="@username"
+                  className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
                   onKeyDown={e => { if (e.key === "Enter") handleRegister(); }}
                 />
+                <p className="text-[11px] text-gray-400 mt-1.5">Укажи, чтобы получать уведомления о задачах в Telegram</p>
               </div>
               {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2">{error}</p>}
               <button
@@ -256,7 +266,7 @@ export default function Index() {
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [taskForm, setTaskForm] = useState({ title: "", assignee_id: "" as string | number, deadline: "", status: "Новая" as Status, setter: "7@dosfond.ru" });
-  const [assigneeForm, setAssigneeForm] = useState({ name: "", email: "" });
+  const [assigneeForm, setAssigneeForm] = useState({ name: "", email: "", telegram_username: "" });
   const [saving, setSaving] = useState(false);
   const [newTag, setNewTag] = useState<string | null>(null);
 
@@ -355,7 +365,7 @@ export default function Index() {
   }
 
   function openAddAssignee() {
-    setAssigneeForm({ name: "", email: "" });
+    setAssigneeForm({ name: "", email: "", telegram_username: "" });
     setNewTag(null);
     setModalMode("assignee");
   }
@@ -392,7 +402,7 @@ export default function Index() {
     const res = await fetch(API_ASSIGNEES, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: assigneeForm.name, email: assigneeForm.email || null }),
+      body: JSON.stringify({ name: assigneeForm.name, email: assigneeForm.email || null, telegram_username: assigneeForm.telegram_username || null }),
     });
     const raw = await res.json();
     const created: Assignee = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -804,7 +814,16 @@ export default function Index() {
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Email для уведомлений</label>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Telegram username</label>
+                    <input
+                      value={assigneeForm.telegram_username}
+                      onChange={e => setAssigneeForm(f => ({ ...f, telegram_username: e.target.value }))}
+                      placeholder="@username"
+                      className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Email</label>
                     <input
                       type="email"
                       value={assigneeForm.email}
@@ -815,7 +834,7 @@ export default function Index() {
                   </div>
                   <div className="bg-[#F4F6F9] rounded p-3 text-[11px] text-gray-500 flex items-start gap-2">
                     <Icon name="Info" size={13} className="text-gray-400 mt-0.5 shrink-0" />
-                    <span>Тег генерируется автоматически. При указании email исполнитель будет получать письма о новых задачах</span>
+                    <span>Тег генерируется автоматически. Укажи Telegram — исполнитель будет получать уведомления о задачах в личку</span>
                   </div>
                 </div>
 

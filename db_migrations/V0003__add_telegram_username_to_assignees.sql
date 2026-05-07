@@ -1,0 +1,1 @@
+ALTER TABLE assignees ADD COLUMN IF NOT EXISTS telegram_username TEXT;

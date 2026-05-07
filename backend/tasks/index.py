@@ -6,65 +6,36 @@ import psycopg2
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
+
+
 SENDERS = ["7@dosfond.ru", "1@dosfond.ru"]
 
-def send_email(to_email: str, assignee_name: str, assignee_tag: str, task_title: str, deadline: str, status: str, setter: str):
-    """Отправляет уведомление исполнителю о новой/изменённой задаче через Resend."""
-    api_key = os.environ.get("RESEND_API_KEY", "")
-    if not api_key or not to_email:
+def send_telegram(tg_username: str, assignee_name: str, assignee_tag: str, task_title: str, deadline: str, status: str, setter: str):
+    """Отправляет уведомление исполнителю в Telegram через бота."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token or not tg_username:
         return
 
-    filter_url = f"https://zadachi.dosfond.ru/?assignee={assignee_tag.lstrip('@')}"
-
-    html = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1E3A5F;">
-      <div style="background: #1E3A5F; padding: 20px 28px; border-radius: 8px 8px 0 0;">
-        <h2 style="color: white; margin: 0; font-size: 16px; font-weight: 600;">Журнал задач — новое задание</h2>
-      </div>
-      <div style="background: #F4F6F9; padding: 24px 28px; border-radius: 0 0 8px 8px; border: 1px solid #E0E6EF; border-top: none;">
-        <p style="margin: 0 0 16px 0; font-size: 14px;">Привет, <strong>{assignee_name}</strong>!</p>
-        <p style="margin: 0 0 20px 0; font-size: 14px;">Тебе назначена задача:</p>
-
-        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-          <tr style="background: white;">
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF; color: #666; width: 120px;">Задача</td>
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF; font-weight: 600;">{task_title}</td>
-          </tr>
-          <tr>
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF; color: #666; background: #F9FBFC;">Срок</td>
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF; background: #F9FBFC;">{deadline}</td>
-          </tr>
-          <tr style="background: white;">
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF; color: #666;">Статус</td>
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF;">{status}</td>
-          </tr>
-          <tr>
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF; color: #666; background: #F9FBFC;">Постановщик</td>
-            <td style="padding: 10px 14px; border: 1px solid #E0E6EF; background: #F9FBFC;">{setter}</td>
-          </tr>
-        </table>
-
-        <a href="{filter_url}" style="display: inline-block; background: #1E3A5F; color: white; padding: 10px 22px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
-          Открыть мои задачи
-        </a>
-
-        <p style="margin: 20px 0 0 0; font-size: 11px; color: #999;">Твой тег: <strong>{assignee_tag}</strong></p>
-      </div>
-    </div>
-    """
+    username = tg_username.lstrip("@")
+    text = (
+        f"📋 *Новая задача*\n\n"
+        f"*{task_title}*\n\n"
+        f"📅 Срок: {deadline}\n"
+        f"🔖 Статус: {status}\n"
+        f"👤 Постановщик: {setter}\n\n"
+        f"Твой тег: `{assignee_tag}`"
+    )
 
     payload = json.dumps({
-        "from": "Журнал задач <onboarding@resend.dev>",
-        "to": [to_email],
-        "reply_to": setter if setter in SENDERS else "7@dosfond.ru",
-        "subject": f"Новая задача: {task_title}",
-        "html": html,
+        "chat_id": f"@{username}",
+        "text": text,
+        "parse_mode": "Markdown",
     }).encode()
 
     req = urllib.request.Request(
-        "https://api.resend.com/emails",
+        f"https://api.telegram.org/bot{token}/sendMessage",
         data=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        headers={"Content-Type": "application/json"},
         method="POST"
     )
     try:
@@ -73,7 +44,7 @@ def send_email(to_email: str, assignee_name: str, assignee_tag: str, task_title:
         pass
 
 def handler(event: dict, context) -> dict:
-    """CRUD для задач. При создании/обновлении задачи с исполнителем отправляет email-уведомление."""
+    """CRUD для задач. При создании/обновлении с исполнителем отправляет уведомление в Telegram."""
     cors = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
@@ -100,11 +71,8 @@ def handler(event: dict, context) -> dict:
         data = []
         for r in rows:
             data.append({
-                'id': r[0],
-                'title': r[1],
-                'deadline': str(r[2]),
-                'status': r[3],
-                'created_at': str(r[4]),
+                'id': r[0], 'title': r[1], 'deadline': str(r[2]),
+                'status': r[3], 'created_at': str(r[4]),
                 'assignee': {'id': r[5], 'name': r[6], 'tag': r[7]} if r[5] else None
             })
         conn.close()
@@ -131,7 +99,7 @@ def handler(event: dict, context) -> dict:
 
         cur.execute("""
             SELECT t.id, t.title, t.deadline, t.status, t.created_at,
-                   a.id, a.name, a.tag, a.email
+                   a.id, a.name, a.tag, a.telegram_username
             FROM tasks t LEFT JOIN assignees a ON t.assignee_id = a.id
             WHERE t.id = %s
         """, (task_id,))
@@ -142,7 +110,7 @@ def handler(event: dict, context) -> dict:
             d = str(r[2])
             parts = d.split("-")
             deadline_fmt = f"{parts[2]}.{parts[1]}.{parts[0]}" if len(parts) == 3 else d
-            send_email(r[8], r[6], r[7], r[1], deadline_fmt, r[3], setter)
+            send_telegram(r[8], r[6], r[7], r[1], deadline_fmt, r[3], setter)
 
         result = {
             'id': r[0], 'title': r[1], 'deadline': str(r[2]), 'status': r[3], 'created_at': str(r[4]),
@@ -173,7 +141,7 @@ def handler(event: dict, context) -> dict:
 
         cur.execute("""
             SELECT t.id, t.title, t.deadline, t.status, t.created_at,
-                   a.id, a.name, a.tag, a.email
+                   a.id, a.name, a.tag, a.telegram_username
             FROM tasks t LEFT JOIN assignees a ON t.assignee_id = a.id
             WHERE t.id = %s
         """, (task_id,))
@@ -184,7 +152,7 @@ def handler(event: dict, context) -> dict:
             d = str(r[2])
             parts = d.split("-")
             deadline_fmt = f"{parts[2]}.{parts[1]}.{parts[0]}" if len(parts) == 3 else d
-            send_email(r[8], r[6], r[7], r[1], deadline_fmt, r[3], setter)
+            send_telegram(r[8], r[6], r[7], r[1], deadline_fmt, r[3], setter)
 
         result = {
             'id': r[0], 'title': r[1], 'deadline': str(r[2]), 'status': r[3], 'created_at': str(r[4]),
