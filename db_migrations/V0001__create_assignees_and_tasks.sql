@@ -1,0 +1,16 @@
+
+CREATE TABLE IF NOT EXISTS assignees (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  tag TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  assignee_id INTEGER REFERENCES assignees(id),
+  deadline DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Новая',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);

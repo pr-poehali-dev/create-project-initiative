@@ -1,0 +1,21 @@
+{
+  "tests": [
+    {
+      "name": "GET assignees list",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST create assignee",
+      "method": "POST",
+      "path": "/",
+      "body": {"name": "Иванова Анна"},
+      "expectedStatus": 201,
+      "expectedBody": {"name": "Иванова Анна"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
