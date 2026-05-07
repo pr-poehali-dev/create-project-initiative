@@ -62,7 +62,7 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
   const [success, setSuccess] = useState<Assignee | null>(null);
 
   async function handleRegister() {
-    if (!form.name.trim() || !form.email.trim()) return;
+    if (!form.name.trim()) return;
     setLoading(true);
     setError("");
     const res = await fetch(API_ASSIGNEES, {
@@ -209,7 +209,7 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
               {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2">{error}</p>}
               <button
                 onClick={handleRegister}
-                disabled={!form.name.trim() || !form.email.trim() || loading}
+                disabled={!form.name.trim() || loading}
                 className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-1"
               >
                 {loading ? "Регистрируем..." : "Зарегистрироваться"}
@@ -269,6 +269,13 @@ export default function Index() {
   const [assigneeForm, setAssigneeForm] = useState({ name: "", email: "", telegram_username: "" });
   const [saving, setSaving] = useState(false);
   const [newTag, setNewTag] = useState<string | null>(null);
+
+  interface Comment { id: number; task_id: number; text: string; created_at: string; assignee: { id: number; name: string; tag: string }; }
+  const [viewTask, setViewTask] = useState<Task | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
 
   // Восстанавливаем сессию из localStorage
   useEffect(() => {
@@ -368,6 +375,33 @@ export default function Index() {
     setAssigneeForm({ name: "", email: "", telegram_username: "" });
     setNewTag(null);
     setModalMode("assignee");
+  }
+
+  async function openViewTask(task: Task) {
+    setViewTask(task);
+    setCommentText("");
+    setCommentsLoading(true);
+    const res = await fetch(`${API_TASKS}?comments=1&task_id=${task.id}`);
+    const raw = await res.json();
+    setComments(Array.isArray(raw) ? raw : JSON.parse(raw));
+    setCommentsLoading(false);
+  }
+
+  async function submitComment() {
+    if (!commentText.trim() || !viewTask || typeof currentUser === "string" || !currentUser) return;
+    setCommentSaving(true);
+    const res = await fetch(`${API_TASKS}?action=comment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_id: viewTask.id, assignee_id: currentUser.id, text: commentText.trim() }),
+    });
+    const raw = await res.json();
+    const created = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (created.id) {
+      setComments(c => [...c, created]);
+      setCommentText("");
+    }
+    setCommentSaving(false);
   }
 
   async function saveTask() {
@@ -596,7 +630,7 @@ export default function Index() {
                   const cfg = STATUS_CONFIG[task.status];
                   const overdue = isOverdue(task.deadline, task.status);
                   return (
-                    <tr key={task.id} className={`border-t border-gray-100 hover:bg-[#F0F5FA] transition-colors ${idx % 2 !== 0 ? "bg-[#FAFBFC]" : ""}`}>
+                    <tr key={task.id} onClick={() => openViewTask(task)} className={`border-t border-gray-100 hover:bg-[#F0F5FA] transition-colors cursor-pointer ${idx % 2 !== 0 ? "bg-[#FAFBFC]" : ""}`}>
                       <td className="px-4 py-3.5 text-gray-400 font-mono text-xs">{String(task.id).padStart(3, "0")}</td>
                       <td className="px-4 py-3.5 text-[#1E3A5F] font-medium">{task.title}</td>
                       <td className="px-4 py-3.5">
@@ -648,7 +682,7 @@ export default function Index() {
               const cfg = STATUS_CONFIG[task.status];
               const overdue = isOverdue(task.deadline, task.status);
               return (
-                <div key={task.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                <div key={task.id} onClick={() => openViewTask(task)} className="bg-white border border-gray-200 rounded-lg p-4 cursor-pointer active:bg-[#F0F5FA]">
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <p className="text-[#1E3A5F] font-semibold text-sm leading-snug flex-1">{task.title}</p>
                     <div className="flex items-center gap-2 shrink-0">
@@ -854,6 +888,82 @@ export default function Index() {
                   </button>
                 </div>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Модалка просмотра задачи + комментарии */}
+      {viewTask && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setViewTask(null)}>
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100">
+              <h2 className="text-sm font-bold text-[#1E3A5F] uppercase tracking-widest">Задача</h2>
+              <button onClick={() => setViewTask(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <Icon name="X" size={18} />
+              </button>
+            </div>
+            <div className="px-6 py-4 border-b border-gray-100">
+              <p className="text-[#1E3A5F] font-semibold text-base mb-3">{viewTask.title}</p>
+              <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                {viewTask.assignee && (
+                  <span className="flex items-center gap-1">
+                    <Icon name="User" size={12} className="text-gray-400" />
+                    {viewTask.assignee.name}
+                    <span className="font-mono text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded ml-1">{viewTask.assignee.tag}</span>
+                  </span>
+                )}
+                <span className={`flex items-center gap-1 font-mono ${isOverdue(viewTask.deadline, viewTask.status) ? "text-[#7B241C] font-bold" : ""}`}>
+                  <Icon name="Calendar" size={12} className="text-gray-400" />
+                  {formatDate(viewTask.deadline)}
+                </span>
+                <span className={`px-2 py-0.5 rounded font-semibold ${STATUS_CONFIG[viewTask.status].bg} ${STATUS_CONFIG[viewTask.status].color}`}>
+                  {viewTask.status}
+                </span>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-2 min-h-[80px]">
+              {commentsLoading ? (
+                <div className="flex items-center justify-center py-6 text-gray-400">
+                  <Icon name="Loader2" size={20} className="animate-spin mr-2" />
+                  <span className="text-sm">Загрузка...</span>
+                </div>
+              ) : comments.length === 0 ? (
+                <p className="text-gray-400 text-xs text-center py-4">Комментариев пока нет</p>
+              ) : (
+                comments.map(c => (
+                  <div key={c.id} className="bg-[#F4F6F9] rounded-lg px-3 py-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-mono text-[10px] text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded">{c.assignee.tag}</span>
+                      <span className="text-[10px] text-gray-400">{new Date(c.created_at).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <p className="text-sm text-[#1E3A5F]">{c.text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            {typeof currentUser !== "string" && currentUser && viewTask.assignee?.id === currentUser.id && (
+              <div className="px-6 pb-5 pt-3 border-t border-gray-100">
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <input
+                      value={commentText}
+                      onChange={e => setCommentText(e.target.value.slice(0, 100))}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(); } }}
+                      placeholder="Написать комментарий..."
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1 text-right">{commentText.length}/100</p>
+                  </div>
+                  <button
+                    onClick={submitComment}
+                    disabled={!commentText.trim() || commentSaving}
+                    className="mb-5 bg-[#1E3A5F] text-white rounded-lg px-3 py-2.5 hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Icon name="Send" size={16} />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>

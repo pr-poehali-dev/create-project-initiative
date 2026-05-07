@@ -6,8 +6,6 @@ import psycopg2
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
-
-
 SENDERS = ["7@dosfond.ru", "1@dosfond.ru"]
 
 def send_telegram(tg_username: str, assignee_name: str, assignee_tag: str, task_title: str, deadline: str, status: str, setter: str):
@@ -44,7 +42,7 @@ def send_telegram(tg_username: str, assignee_name: str, assignee_tag: str, task_
         pass
 
 def handler(event: dict, context) -> dict:
-    """CRUD для задач. При создании/обновлении с исполнителем отправляет уведомление в Telegram."""
+    """CRUD для задач и комментариев. GET ?comments=1&task_id=X — список комментариев. POST/PUT — задачи. POST ?action=comment — добавить комментарий."""
     cors = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
@@ -56,9 +54,32 @@ def handler(event: dict, context) -> dict:
         return {'statusCode': 200, 'headers': cors, 'body': ''}
 
     method = event.get('httpMethod', 'GET')
+    params = event.get('queryStringParameters') or {}
     conn = get_conn()
     cur = conn.cursor()
 
+    # GET комментариев: ?comments=1&task_id=X
+    if method == 'GET' and params.get('comments'):
+        task_id = params.get('task_id')
+        if not task_id:
+            conn.close()
+            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'task_id required'})}
+        cur.execute("""
+            SELECT c.id, c.task_id, c.text, c.created_at, a.id, a.name, a.tag
+            FROM task_comments c
+            JOIN assignees a ON c.assignee_id = a.id
+            WHERE c.task_id = %s
+            ORDER BY c.created_at ASC
+        """, (task_id,))
+        rows = cur.fetchall()
+        data = [{
+            'id': r[0], 'task_id': r[1], 'text': r[2], 'created_at': str(r[3]),
+            'assignee': {'id': r[4], 'name': r[5], 'tag': r[6]}
+        } for r in rows]
+        conn.close()
+        return {'statusCode': 200, 'headers': cors, 'body': json.dumps(data, ensure_ascii=False)}
+
+    # GET задач
     if method == 'GET':
         cur.execute("""
             SELECT t.id, t.title, t.deadline, t.status, t.created_at,
@@ -78,6 +99,31 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps(data, ensure_ascii=False)}
 
+    # POST комментария: ?action=comment
+    if method == 'POST' and params.get('action') == 'comment':
+        body = json.loads(event.get('body') or '{}')
+        task_id = body.get('task_id')
+        assignee_id = body.get('assignee_id')
+        text = (body.get('text') or '').strip()[:100]
+        if not task_id or not assignee_id or not text:
+            conn.close()
+            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'task_id, assignee_id, text required'})}
+        cur.execute(
+            "INSERT INTO task_comments (task_id, assignee_id, text) VALUES (%s, %s, %s) RETURNING id, task_id, text, created_at",
+            (task_id, assignee_id, text)
+        )
+        r = cur.fetchone()
+        conn.commit()
+        cur.execute("SELECT id, name, tag FROM assignees WHERE id = %s", (assignee_id,))
+        a = cur.fetchone()
+        conn.close()
+        result = {
+            'id': r[0], 'task_id': r[1], 'text': r[2], 'created_at': str(r[3]),
+            'assignee': {'id': a[0], 'name': a[1], 'tag': a[2]}
+        }
+        return {'statusCode': 201, 'headers': cors, 'body': json.dumps(result, ensure_ascii=False)}
+
+    # POST новой задачи
     if method == 'POST':
         body = json.loads(event.get('body') or '{}')
         title = (body.get('title') or '').strip()
