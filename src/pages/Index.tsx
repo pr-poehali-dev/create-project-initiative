@@ -3,6 +3,8 @@ import Icon from "@/components/ui/icon";
 
 const API_ASSIGNEES = "https://functions.poehali.dev/defb4901-3a86-4c40-923f-96cdf4be23ac";
 const API_TASKS = "https://functions.poehali.dev/53d318bd-f60a-459d-b3d4-4a534d7989b4";
+const ADMIN_EMAILS = ["7@dosfond.ru", "1@dosfond.ru"];
+const LS_KEY = "journal_user_tag";
 
 type Status = "Новая" | "В работе" | "На проверке" | "Выполнена" | "Просрочена";
 
@@ -44,7 +46,203 @@ function isOverdue(deadline: string, status: Status) {
 
 type ModalMode = "task" | "assignee" | null;
 
+// ─── Вводный экран ────────────────────────────────────────────────────────────
+
+interface WelcomeScreenProps {
+  onEnter: (assignee: Assignee) => void;
+  onAdmin: () => void;
+}
+
+function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
+  const [mode, setMode] = useState<"choose" | "register" | "login">("choose");
+  const [form, setForm] = useState({ name: "", email: "" });
+  const [tag, setTag] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState<Assignee | null>(null);
+
+  async function handleRegister() {
+    if (!form.name.trim() || !form.email.trim()) return;
+    setLoading(true);
+    setError("");
+    const res = await fetch(API_ASSIGNEES, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: form.name.trim(), email: form.email.trim() }),
+    });
+    const raw = await res.json();
+    const created: Assignee = typeof raw === "string" ? JSON.parse(raw) : raw;
+    setLoading(false);
+    if (created.id) {
+      setSuccess(created);
+    } else {
+      setError("Не удалось зарегистрироваться. Попробуй ещё раз.");
+    }
+  }
+
+  async function handleLogin() {
+    const t = tag.trim().startsWith("@") ? tag.trim() : `@${tag.trim()}`;
+    if (!t || t === "@") return;
+    setLoading(true);
+    setError("");
+    const res = await fetch(API_ASSIGNEES);
+    const raw = await res.json();
+    const list: Assignee[] = Array.isArray(raw) ? raw : JSON.parse(raw);
+    const found = list.find(a => a.tag.toLowerCase() === t.toLowerCase());
+    setLoading(false);
+    if (found) {
+      onEnter(found);
+    } else {
+      setError("Тег не найден. Проверь правильность или зарегистрируйся.");
+    }
+  }
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8 text-center">
+          <div className="w-16 h-16 bg-[#E9F7EF] rounded-full flex items-center justify-center mx-auto mb-4">
+            <Icon name="CheckCircle2" size={32} className="text-[#145A32]" />
+          </div>
+          <p className="text-[#1E3A5F] font-bold text-lg mb-1">{success.name}</p>
+          <p className="text-gray-400 text-sm mb-5">успешно зарегистрирован</p>
+          <div className="bg-[#D6EAF8] rounded-xl px-6 py-4 mb-2">
+            <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Твой личный тег</p>
+            <span className="font-mono text-[#1A5276] font-bold text-2xl">{success.tag}</span>
+          </div>
+          <p className="text-[11px] text-gray-400 mb-6">Запомни тег — он нужен для входа в следующий раз</p>
+          <button
+            onClick={() => onEnter(success)}
+            className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors"
+          >
+            Перейти к задачам
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
+        {/* Лого */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-10 h-10 bg-[#1E3A5F] rounded-lg flex items-center justify-center">
+            <Icon name="ClipboardList" size={22} className="text-white" />
+          </div>
+          <div>
+            <p className="text-[#1E3A5F] font-bold text-base leading-tight">Журнал задач</p>
+            <p className="text-gray-400 text-[11px] uppercase tracking-widest">Учебные материалы</p>
+          </div>
+        </div>
+
+        {mode === "choose" && (
+          <>
+            <h2 className="text-[#1E3A5F] font-bold text-xl mb-2">Добро пожаловать</h2>
+            <p className="text-gray-500 text-sm mb-7">Выбери, как хочешь войти</p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => setMode("register")}
+                className="w-full bg-[#1E3A5F] text-white rounded-xl py-3.5 font-semibold hover:bg-[#16304F] transition-colors flex items-center justify-center gap-2"
+              >
+                <Icon name="UserPlus" size={18} />
+                Первый раз — зарегистрироваться
+              </button>
+              <button
+                onClick={() => setMode("login")}
+                className="w-full border-2 border-[#1E3A5F] text-[#1E3A5F] rounded-xl py-3.5 font-semibold hover:bg-[#E8EFF7] transition-colors flex items-center justify-center gap-2"
+              >
+                <Icon name="LogIn" size={18} />
+                У меня есть тег — войти
+              </button>
+              <button
+                onClick={onAdmin}
+                className="w-full text-gray-400 text-sm py-2 hover:text-[#1E3A5F] transition-colors"
+              >
+                Войти как постановщик
+              </button>
+            </div>
+          </>
+        )}
+
+        {mode === "register" && (
+          <>
+            <button onClick={() => { setMode("choose"); setError(""); }} className="flex items-center gap-1.5 text-gray-400 text-sm mb-5 hover:text-[#1E3A5F] transition-colors">
+              <Icon name="ChevronLeft" size={16} />
+              Назад
+            </button>
+            <h2 className="text-[#1E3A5F] font-bold text-xl mb-1">Регистрация</h2>
+            <p className="text-gray-500 text-sm mb-6">Один раз — и ты в системе</p>
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Полное имя</label>
+                <input
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Фамилия Имя Отчество"
+                  className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Email</label>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="example@mail.ru"
+                  className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                  onKeyDown={e => { if (e.key === "Enter") handleRegister(); }}
+                />
+              </div>
+              {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2">{error}</p>}
+              <button
+                onClick={handleRegister}
+                disabled={!form.name.trim() || !form.email.trim() || loading}
+                className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-1"
+              >
+                {loading ? "Регистрируем..." : "Зарегистрироваться"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {mode === "login" && (
+          <>
+            <button onClick={() => { setMode("choose"); setError(""); }} className="flex items-center gap-1.5 text-gray-400 text-sm mb-5 hover:text-[#1E3A5F] transition-colors">
+              <Icon name="ChevronLeft" size={16} />
+              Назад
+            </button>
+            <h2 className="text-[#1E3A5F] font-bold text-xl mb-1">Вход по тегу</h2>
+            <p className="text-gray-500 text-sm mb-6">Введи свой личный тег из письма</p>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Личный тег</label>
+              <input
+                value={tag}
+                onChange={e => setTag(e.target.value)}
+                placeholder="@ivanov"
+                className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                onKeyDown={e => { if (e.key === "Enter") handleLogin(); }}
+              />
+            </div>
+            {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2 mt-3">{error}</p>}
+            <button
+              onClick={handleLogin}
+              disabled={!tag.trim() || loading}
+              className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-5"
+            >
+              {loading ? "Проверяем..." : "Войти"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Главный компонент ────────────────────────────────────────────────────────
+
 export default function Index() {
+  const [currentUser, setCurrentUser] = useState<Assignee | "admin" | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,16 +258,61 @@ export default function Index() {
   const [saving, setSaving] = useState(false);
   const [newTag, setNewTag] = useState<string | null>(null);
 
+  // Восстанавливаем сессию из localStorage
   useEffect(() => {
+    const saved = localStorage.getItem(LS_KEY);
+    if (saved === "admin") {
+      setCurrentUser("admin");
+    } else if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed?.tag) setCurrentUser(parsed);
+      } catch (_) { /* ignore */ }
+    }
+  }, []);
+
+  // Загружаем данные когда пользователь вошёл
+  useEffect(() => {
+    if (!currentUser) return;
+    setLoading(true);
     Promise.all([
       fetch(API_ASSIGNEES).then(r => r.json()),
       fetch(API_TASKS).then(r => r.json()),
     ]).then(([a, t]) => {
-      setAssignees(Array.isArray(a) ? a : JSON.parse(a));
-      setTasks(Array.isArray(t) ? t : JSON.parse(t));
+      const aList: Assignee[] = Array.isArray(a) ? a : JSON.parse(a);
+      const tList: Task[] = Array.isArray(t) ? t : JSON.parse(t);
+      setAssignees(aList);
+      setTasks(tList);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, []);
+  }, [currentUser]);
+
+  // При входе исполнителя — фильтруем сразу по нему
+  useEffect(() => {
+    if (currentUser && currentUser !== "admin") {
+      setFilterAssignee(String((currentUser as Assignee).id));
+    }
+  }, [currentUser]);
+
+  function handleEnter(assignee: Assignee) {
+    localStorage.setItem(LS_KEY, JSON.stringify(assignee));
+    setCurrentUser(assignee);
+  }
+
+  function handleAdmin() {
+    localStorage.setItem(LS_KEY, "admin");
+    setCurrentUser("admin");
+  }
+
+  function handleLogout() {
+    localStorage.removeItem(LS_KEY);
+    setCurrentUser(null);
+    setFilterAssignee("all");
+    setFilterStatus("all");
+    setFilterDeadline("all");
+  }
+
+  const isAdmin = currentUser === "admin";
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -158,6 +401,11 @@ export default function Index() {
 
   const hasFilters = filterAssignee !== "all" || filterStatus !== "all" || filterDeadline !== "all";
 
+  // Показываем вводный экран если не вошли
+  if (!currentUser) {
+    return <WelcomeScreen onEnter={handleEnter} onAdmin={handleAdmin} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#F4F6F9] font-sans">
       {/* Header */}
@@ -172,19 +420,37 @@ export default function Index() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* Текущий пользователь */}
+          <div className="flex items-center gap-2 bg-white/10 border border-white/20 px-3 py-1.5 rounded text-sm">
+            <Icon name="User" size={14} className="text-white/60" />
+            <span className="text-white/80 font-mono text-xs">
+              {isAdmin ? "Постановщик" : (currentUser as Assignee).tag}
+            </span>
+          </div>
+          {isAdmin && (
+            <>
+              <button
+                onClick={openAddAssignee}
+                className="flex items-center gap-2 bg-white/10 border border-white/20 text-white px-4 py-2 text-sm font-medium rounded hover:bg-white/20 transition-colors"
+              >
+                <Icon name="UserPlus" size={15} />
+                Добавить исполнителя
+              </button>
+              <button
+                onClick={openAddTask}
+                className="flex items-center gap-2 bg-white text-[#1E3A5F] px-4 py-2 text-sm font-semibold rounded hover:bg-[#E8EFF7] transition-colors"
+              >
+                <Icon name="Plus" size={16} />
+                Добавить задачу
+              </button>
+            </>
+          )}
           <button
-            onClick={openAddAssignee}
-            className="flex items-center gap-2 bg-white/10 border border-white/20 text-white px-4 py-2 text-sm font-medium rounded hover:bg-white/20 transition-colors"
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 text-white/50 hover:text-white text-sm transition-colors ml-1"
+            title="Выйти"
           >
-            <Icon name="UserPlus" size={15} />
-            Добавить исполнителя
-          </button>
-          <button
-            onClick={openAddTask}
-            className="flex items-center gap-2 bg-white text-[#1E3A5F] px-4 py-2 text-sm font-semibold rounded hover:bg-[#E8EFF7] transition-colors"
-          >
-            <Icon name="Plus" size={16} />
-            Добавить задачу
+            <Icon name="LogOut" size={16} />
           </button>
         </div>
       </header>
@@ -206,17 +472,19 @@ export default function Index() {
 
         {/* Filters */}
         <div className="bg-white border border-gray-200 rounded p-4 mb-4 flex flex-wrap gap-4 items-end">
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Исполнитель</label>
-            <select
-              value={filterAssignee}
-              onChange={e => setFilterAssignee(e.target.value)}
-              className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] min-w-[200px]"
-            >
-              <option value="all">Все исполнители</option>
-              {assignees.map(a => <option key={a.id} value={String(a.id)}>{a.name} {a.tag}</option>)}
-            </select>
-          </div>
+          {isAdmin && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Исполнитель</label>
+              <select
+                value={filterAssignee}
+                onChange={e => setFilterAssignee(e.target.value)}
+                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] min-w-[200px]"
+              >
+                <option value="all">Все исполнители</option>
+                {assignees.map(a => <option key={a.id} value={String(a.id)}>{a.name} {a.tag}</option>)}
+              </select>
+            </div>
+          )}
 
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Статус</label>
@@ -246,7 +514,11 @@ export default function Index() {
 
           {hasFilters && (
             <button
-              onClick={() => { setFilterAssignee("all"); setFilterStatus("all"); setFilterDeadline("all"); }}
+              onClick={() => {
+                setFilterStatus("all");
+                setFilterDeadline("all");
+                if (isAdmin) setFilterAssignee("all");
+              }}
               className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#1E3A5F] transition-colors pb-0.5"
             >
               <Icon name="X" size={14} />
@@ -271,7 +543,7 @@ export default function Index() {
                 <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest w-56">Исполнитель</th>
                 <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest w-32">Срок</th>
                 <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest w-36">Статус</th>
-                <th className="px-4 py-3.5 w-16"></th>
+                {isAdmin && <th className="px-4 py-3.5 w-16"></th>}
               </tr>
             </thead>
             <tbody>
@@ -319,11 +591,13 @@ export default function Index() {
                           {task.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3.5">
-                        <button onClick={() => openEditTask(task)} className="text-gray-300 hover:text-[#1E3A5F] transition-colors">
-                          <Icon name="Pencil" size={15} />
-                        </button>
-                      </td>
+                      {isAdmin && (
+                        <td className="px-4 py-3.5">
+                          <button onClick={() => openEditTask(task)} className="text-gray-300 hover:text-[#1E3A5F] transition-colors">
+                            <Icon name="Pencil" size={15} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -333,8 +607,8 @@ export default function Index() {
         </div>
       </main>
 
-      {/* Task Modal */}
-      {modalMode === "task" && (
+      {/* Task Modal — только для постановщика */}
+      {isAdmin && modalMode === "task" && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setModalMode(null)}>
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
@@ -398,8 +672,7 @@ export default function Index() {
                   onChange={e => setTaskForm(f => ({ ...f, setter: e.target.value }))}
                   className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
                 >
-                  <option value="7@dosfond.ru">7@dosfond.ru</option>
-                  <option value="1@dosfond.ru">1@dosfond.ru</option>
+                  {ADMIN_EMAILS.map(e => <option key={e} value={e}>{e}</option>)}
                 </select>
               </div>
             </div>
@@ -423,8 +696,8 @@ export default function Index() {
         </div>
       )}
 
-      {/* Assignee Modal */}
-      {modalMode === "assignee" && (
+      {/* Assignee Modal — только для постановщика */}
+      {isAdmin && modalMode === "assignee" && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { if (!newTag) setModalMode(null); }}>
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
