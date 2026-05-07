@@ -140,7 +140,6 @@ function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
           </div>
           <div>
             <p className="text-[#1E3A5F] font-bold text-base leading-tight">Журнал задач</p>
-            <p className="text-gray-400 text-[11px] uppercase tracking-widest">Учебные материалы</p>
           </div>
         </div>
 
@@ -419,7 +418,7 @@ export default function Index() {
           </div>
           <div>
             <h1 className="text-lg font-semibold tracking-wide leading-tight">Журнал задач</h1>
-            <p className="text-white/50 text-[11px] tracking-widest uppercase">Учебные материалы</p>
+
           </div>
         </div>
         <div className="flex items-center gap-3">
