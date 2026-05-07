@@ -411,76 +411,93 @@ export default function Index() {
   return (
     <div className="min-h-screen bg-[#F4F6F9] font-sans">
       {/* Header */}
-      <header className="bg-[#1E3A5F] text-white px-8 py-5 flex items-center justify-between shadow-lg">
-        <div className="flex items-center gap-4">
-          <div className="w-9 h-9 bg-white/15 rounded flex items-center justify-center">
-            <Icon name="ClipboardList" size={20} className="text-white" />
+      <header className="bg-[#1E3A5F] text-white px-4 md:px-8 py-4 md:py-5 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 md:w-9 md:h-9 bg-white/15 rounded flex items-center justify-center shrink-0">
+              <Icon name="ClipboardList" size={18} className="text-white" />
+            </div>
+            <h1 className="text-base md:text-lg font-semibold tracking-wide leading-tight">Журнал задач</h1>
           </div>
-          <div>
-            <h1 className="text-lg font-semibold tracking-wide leading-tight">Журнал задач</h1>
-
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-white/10 border border-white/20 px-2.5 py-1.5 rounded">
+              <Icon name="User" size={13} className="text-white/60" />
+              <span className="text-white/80 font-mono text-xs">
+                {isAdmin ? "Постановщик" : (currentUser as Assignee).tag}
+              </span>
+            </div>
+            {isAdmin && (
+              <>
+                <button
+                  onClick={openAddAssignee}
+                  className="flex items-center gap-1.5 bg-white/10 border border-white/20 text-white px-2.5 py-1.5 text-xs font-medium rounded hover:bg-white/20 transition-colors"
+                >
+                  <Icon name="UserPlus" size={14} />
+                  <span className="hidden sm:inline">Добавить исполнителя</span>
+                </button>
+                <button
+                  onClick={openAddTask}
+                  className="flex items-center gap-1.5 bg-white text-[#1E3A5F] px-2.5 py-1.5 text-xs font-semibold rounded hover:bg-[#E8EFF7] transition-colors"
+                >
+                  <Icon name="Plus" size={14} />
+                  <span className="hidden sm:inline">Добавить задачу</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={handleLogout}
+              className="text-white/50 hover:text-white transition-colors p-1"
+              title="Выйти"
+            >
+              <Icon name="LogOut" size={16} />
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Текущий пользователь */}
-          <div className="flex items-center gap-2 bg-white/10 border border-white/20 px-3 py-1.5 rounded text-sm">
-            <Icon name="User" size={14} className="text-white/60" />
-            <span className="text-white/80 font-mono text-xs">
-              {isAdmin ? "Постановщик" : (currentUser as Assignee).tag}
-            </span>
+        {/* Мобильные кнопки постановщика */}
+        {isAdmin && (
+          <div className="flex sm:hidden gap-2 mt-3">
+            <button
+              onClick={openAddAssignee}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-white/10 border border-white/20 text-white py-2 text-xs font-medium rounded hover:bg-white/20 transition-colors"
+            >
+              <Icon name="UserPlus" size={14} />
+              Добавить исполнителя
+            </button>
+            <button
+              onClick={openAddTask}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-white text-[#1E3A5F] py-2 text-xs font-semibold rounded hover:bg-[#E8EFF7] transition-colors"
+            >
+              <Icon name="Plus" size={14} />
+              Добавить задачу
+            </button>
           </div>
-          {isAdmin && (
-            <>
-              <button
-                onClick={openAddAssignee}
-                className="flex items-center gap-2 bg-white/10 border border-white/20 text-white px-4 py-2 text-sm font-medium rounded hover:bg-white/20 transition-colors"
-              >
-                <Icon name="UserPlus" size={15} />
-                Добавить исполнителя
-              </button>
-              <button
-                onClick={openAddTask}
-                className="flex items-center gap-2 bg-white text-[#1E3A5F] px-4 py-2 text-sm font-semibold rounded hover:bg-[#E8EFF7] transition-colors"
-              >
-                <Icon name="Plus" size={16} />
-                Добавить задачу
-              </button>
-            </>
-          )}
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 text-white/50 hover:text-white text-sm transition-colors ml-1"
-            title="Выйти"
-          >
-            <Icon name="LogOut" size={16} />
-          </button>
-        </div>
+        )}
       </header>
 
-      <main className="px-8 py-6 max-w-7xl mx-auto">
+      <main className="px-4 md:px-8 py-4 md:py-6 max-w-7xl mx-auto">
         {/* Stats */}
-        <div className="grid grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-5 gap-2 md:gap-3 mb-4 md:mb-6">
           {ALL_STATUSES.map(s => {
             const count = tasks.filter(t => t.status === s).length;
             const cfg = STATUS_CONFIG[s];
             return (
-              <div key={s} className="bg-white border border-gray-200 rounded p-4 flex flex-col gap-1.5">
-                <span className="text-2xl font-bold text-[#1E3A5F]">{count}</span>
-                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded w-fit ${cfg.bg} ${cfg.color}`}>{s}</span>
+              <div key={s} className="bg-white border border-gray-200 rounded p-2 md:p-4 flex flex-col gap-1">
+                <span className="text-xl md:text-2xl font-bold text-[#1E3A5F]">{count}</span>
+                <span className={`text-[9px] md:text-[11px] font-semibold px-1.5 py-0.5 rounded w-fit ${cfg.bg} ${cfg.color}`}>{s}</span>
               </div>
             );
           })}
         </div>
 
         {/* Filters */}
-        <div className="bg-white border border-gray-200 rounded p-4 mb-4 flex flex-wrap gap-4 items-end">
+        <div className="bg-white border border-gray-200 rounded p-3 md:p-4 mb-4 flex flex-col md:flex-row flex-wrap gap-3 md:gap-4 md:items-end">
           {isAdmin && (
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Исполнитель</label>
               <select
                 value={filterAssignee}
                 onChange={e => setFilterAssignee(e.target.value)}
-                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] min-w-[200px]"
+                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[200px]"
               >
                 <option value="all">Все исполнители</option>
                 {assignees.map(a => <option key={a.id} value={String(a.id)}>{a.name} {a.tag}</option>)}
@@ -488,55 +505,56 @@ export default function Index() {
             </div>
           )}
 
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Статус</label>
-            <select
-              value={filterStatus}
-              onChange={e => setFilterStatus(e.target.value)}
-              className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] min-w-[160px]"
-            >
-              <option value="all">Все статусы</option>
-              {ALL_STATUSES.map(s => <option key={s}>{s}</option>)}
-            </select>
+          <div className="flex gap-3">
+            <div className="flex flex-col gap-1 flex-1">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Статус</label>
+              <select
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[160px]"
+              >
+                <option value="all">Все статусы</option>
+                {ALL_STATUSES.map(s => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1 flex-1">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Сроки</label>
+              <select
+                value={filterDeadline}
+                onChange={e => setFilterDeadline(e.target.value as typeof filterDeadline)}
+                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[160px]"
+              >
+                <option value="all">Все сроки</option>
+                <option value="today">Сегодня</option>
+                <option value="week">На этой неделе</option>
+                <option value="overdue">Просроченные</option>
+              </select>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Сроки</label>
-            <select
-              value={filterDeadline}
-              onChange={e => setFilterDeadline(e.target.value as typeof filterDeadline)}
-              className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] min-w-[160px]"
-            >
-              <option value="all">Все сроки</option>
-              <option value="today">Сегодня</option>
-              <option value="week">На этой неделе</option>
-              <option value="overdue">Просроченные</option>
-            </select>
-          </div>
-
-          {hasFilters && (
-            <button
-              onClick={() => {
-                setFilterStatus("all");
-                setFilterDeadline("all");
-                if (isAdmin) setFilterAssignee("all");
-              }}
-              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#1E3A5F] transition-colors pb-0.5"
-            >
-              <Icon name="X" size={14} />
-              Сбросить
-            </button>
-          )}
-
-          <div className="ml-auto flex items-end pb-0.5">
-            <span className="text-sm text-gray-400">
+          <div className="flex items-center justify-between md:contents">
+            {hasFilters && (
+              <button
+                onClick={() => {
+                  setFilterStatus("all");
+                  setFilterDeadline("all");
+                  if (isAdmin) setFilterAssignee("all");
+                }}
+                className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#1E3A5F] transition-colors"
+              >
+                <Icon name="X" size={14} />
+                Сбросить
+              </button>
+            )}
+            <span className="text-sm text-gray-400 md:ml-auto">
               Найдено: <strong className="text-[#1E3A5F]">{filtered.length}</strong>
             </span>
           </div>
         </div>
 
-        {/* Table */}
-        <div className="bg-white border border-gray-200 rounded overflow-hidden">
+        {/* Таблица — десктоп */}
+        <div className="hidden md:block bg-white border border-gray-200 rounded overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-[#1E3A5F] text-white">
@@ -568,10 +586,7 @@ export default function Index() {
                   const cfg = STATUS_CONFIG[task.status];
                   const overdue = isOverdue(task.deadline, task.status);
                   return (
-                    <tr
-                      key={task.id}
-                      className={`border-t border-gray-100 hover:bg-[#F0F5FA] transition-colors ${idx % 2 !== 0 ? "bg-[#FAFBFC]" : ""}`}
-                    >
+                    <tr key={task.id} className={`border-t border-gray-100 hover:bg-[#F0F5FA] transition-colors ${idx % 2 !== 0 ? "bg-[#FAFBFC]" : ""}`}>
                       <td className="px-4 py-3.5 text-gray-400 font-mono text-xs">{String(task.id).padStart(3, "0")}</td>
                       <td className="px-4 py-3.5 text-[#1E3A5F] font-medium">{task.title}</td>
                       <td className="px-4 py-3.5">
@@ -589,9 +604,7 @@ export default function Index() {
                         {overdue && <span className="ml-1.5">●</span>}
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className={`text-[11px] font-semibold px-2.5 py-1 rounded ${cfg.bg} ${cfg.color}`}>
-                          {task.status}
-                        </span>
+                        <span className={`text-[11px] font-semibold px-2.5 py-1 rounded ${cfg.bg} ${cfg.color}`}>{task.status}</span>
                       </td>
                       {isAdmin && (
                         <td className="px-4 py-3.5">
@@ -606,6 +619,55 @@ export default function Index() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Карточки — мобильный */}
+        <div className="md:hidden flex flex-col gap-3">
+          {loading ? (
+            <div className="text-center py-12 text-gray-400">
+              <Icon name="Loader2" size={28} className="mx-auto mb-2 text-gray-300 animate-spin" />
+              <p className="text-sm">Загрузка...</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <Icon name="SearchX" size={32} className="mx-auto mb-2 text-gray-300" />
+              <p className="text-sm">Задачи не найдены</p>
+            </div>
+          ) : (
+            filtered.map(task => {
+              const cfg = STATUS_CONFIG[task.status];
+              const overdue = isOverdue(task.deadline, task.status);
+              return (
+                <div key={task.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <p className="text-[#1E3A5F] font-semibold text-sm leading-snug flex-1">{task.title}</p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[11px] font-semibold px-2.5 py-1 rounded ${cfg.bg} ${cfg.color}`}>{task.status}</span>
+                      {isAdmin && (
+                        <button onClick={() => openEditTask(task)} className="text-gray-300 hover:text-[#1E3A5F] transition-colors">
+                          <Icon name="Pencil" size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-gray-500">
+                    {task.assignee && (
+                      <span className="flex items-center gap-1">
+                        <Icon name="User" size={12} className="text-gray-400" />
+                        {task.assignee.name}
+                        <span className="font-mono text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded ml-1">{task.assignee.tag}</span>
+                      </span>
+                    )}
+                    <span className={`flex items-center gap-1 font-mono ${overdue ? "text-[#7B241C] font-bold" : ""}`}>
+                      <Icon name="Calendar" size={12} className="text-gray-400" />
+                      {formatDate(task.deadline)}
+                      {overdue && " ●"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </main>
 
