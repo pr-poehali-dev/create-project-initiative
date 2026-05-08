@@ -143,9 +143,10 @@ interface VoiceParsed {
   title: string;
   status?: Status;
   deadline?: string;
+  assignee_id?: string;
 }
 
-function parseVoiceText(raw: string): VoiceParsed {
+function parseVoiceText(raw: string, assignees: { id: number; name: string; telegram_username: string }[] = []): VoiceParsed {
   let text = raw.trim();
 
   // Парсим статус
@@ -215,16 +216,62 @@ function parseVoiceText(raw: string): VoiceParsed {
     }
   }
 
+  // Парсим исполнителя по имени (ищем в списке)
+  let foundAssigneeId: string | undefined;
+  if (assignees.length > 0) {
+    // Строим токены для сравнения: имя целиком и отдельные слова имени
+    const lower = text.toLowerCase();
+    let bestMatch: { id: number; score: number } | null = null;
+    for (const a of assignees) {
+      const nameParts = a.name.toLowerCase().split(/\s+/);
+      let score = 0;
+      // Проверяем каждое слово имени — встречается ли в тексте
+      for (const part of nameParts) {
+        if (part.length >= 3 && lower.includes(part)) score++;
+      }
+      // Проверяем полное имя целиком
+      if (lower.includes(a.name.toLowerCase())) score += 5;
+      if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+        bestMatch = { id: a.id, score };
+      }
+    }
+    if (bestMatch) {
+      foundAssigneeId = String(bestMatch.id);
+      // Убираем имя исполнителя из текста
+      const matched = assignees.find(a => a.id === bestMatch!.id)!;
+      for (const part of matched.name.split(/\s+/)) {
+        if (part.length >= 3) {
+          text = text.replace(new RegExp(part, "gi"), "").trim();
+        }
+      }
+    }
+    // Также ищем паттерн "для/исполнитель/назначь X"
+    const forMatch = text.match(/(?:для|назначь|исполнитель|ответственный)[:\s]+([а-яё\s]+?)(?:\s+(?:до|к|на|через|сегодня|завтра|срок)|$)/i);
+    if (forMatch && !foundAssigneeId) {
+      const candidate = forMatch[1].trim().toLowerCase();
+      for (const a of assignees) {
+        const nameParts = a.name.toLowerCase().split(/\s+/);
+        if (nameParts.some(p => p.length >= 3 && candidate.includes(p))) {
+          foundAssigneeId = String(a.id);
+          text = text.replace(forMatch[0], "").trim();
+          break;
+        }
+      }
+    }
+  }
+
   // Чистим лишние слова-связки в начале/конце
   text = text.replace(/^(задача|задачу|задание|поставь|создай|добавь|нужно|надо)[:\s]*/i, "").trim();
   text = text.replace(/[,\s]+$/, "").trim();
 
-  return { title: text || raw.trim(), status: foundStatus, deadline: foundDeadline };
+  return { title: text || raw.trim(), status: foundStatus, deadline: foundDeadline, assignee_id: foundAssigneeId };
 }
 
-function useVoiceInput(onResult: (parsed: VoiceParsed) => void) {
+function useVoiceInput(onResult: (parsed: VoiceParsed) => void, assignees: { id: number; name: string; telegram_username: string }[] = []) {
   const [listening, setListening] = useState(false);
   const recRef = useRef<SpeechRecognition | null>(null);
+  const assigneesRef = useRef(assignees);
+  assigneesRef.current = assignees;
 
   function start() {
     const SR = (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition || (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
@@ -235,7 +282,7 @@ function useVoiceInput(onResult: (parsed: VoiceParsed) => void) {
     rec.maxAlternatives = 1;
     rec.onresult = (e: SpeechRecognitionEvent) => {
       const text = e.results[0][0].transcript;
-      onResult(parseVoiceText(text));
+      onResult(parseVoiceText(text, assigneesRef.current));
     };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
@@ -288,9 +335,10 @@ export default function Index() {
       title: parsed.title,
       ...(parsed.status ? { status: parsed.status } : {}),
       ...(parsed.deadline ? { deadline: parsed.deadline } : {}),
+      ...(parsed.assignee_id ? { assignee_id: parsed.assignee_id } : {}),
     }));
     if (!taskModal) setTaskModal(true);
-  });
+  }, assignees);
 
   // Restore session
   useEffect(() => {
