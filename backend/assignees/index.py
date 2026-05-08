@@ -47,6 +47,23 @@ def handler(event: dict, context) -> dict:
     conn = get_conn()
     cur = conn.cursor()
 
+    # GET ?action=botinfo — узнать username бота
+    if method == 'GET' and params.get('action') == 'botinfo':
+        import urllib.request as ur
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        if not token:
+            conn.close()
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': 'no token'})}
+        try:
+            r = ur.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
+            data = json.loads(r.read())
+            username = data.get("result", {}).get("username", "")
+            conn.close()
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'bot_url': f"https://t.me/{username}", 'username': username})}
+        except Exception as e:
+            conn.close()
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': str(e)})}
+
     # GET /assignees — только исполнители (не постановщики)
     if method == 'GET' and not params.get('action'):
         cur.execute(
