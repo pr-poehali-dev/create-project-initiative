@@ -6,6 +6,13 @@
       "path": "/",
       "expectedStatus": 200,
       "bodyMatcher": "none"
+    },
+    {
+      "name": "DELETE без id возвращает 400",
+      "method": "DELETE",
+      "path": "/",
+      "expectedStatus": 400,
+      "bodyMatcher": "none"
     }
   ]
 }

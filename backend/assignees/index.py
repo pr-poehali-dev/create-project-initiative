@@ -123,6 +123,28 @@ def handler(event: dict, context) -> dict:
             'id': row[0], 'name': row[1], 'telegram_username': row[2], 'telegram_chat_id': row[3]
         })}
 
+    # GET ?action=register_webhook — зарегистрировать webhook у Telegram
+    if method == 'GET' and params.get('action') == 'register_webhook':
+        import urllib.request as ur
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        webhook_url = params.get('url', '')
+        if not token or not webhook_url:
+            conn.close()
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': 'token or url missing'})}
+        payload = json.dumps({"url": webhook_url}).encode()
+        req = ur.Request(
+            f"https://api.telegram.org/bot{token}/setWebhook",
+            data=payload, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        try:
+            r = ur.urlopen(req, timeout=10)
+            result = json.loads(r.read())
+            conn.close()
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps(result)}
+        except Exception as e:
+            conn.close()
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': str(e)})}
+
     # POST ?action=webhook — обработка обновлений от Telegram-бота
     if method == 'POST' and params.get('action') == 'webhook':
         try:

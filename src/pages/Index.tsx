@@ -332,6 +332,14 @@ export default function Index() {
     setArchivedTasks(ar => [updated, ...ar]);
   }
 
+  async function deleteTask(task: Task) {
+    if (!confirm(`Удалить задачу «${task.title}»? Это действие нельзя отменить.`)) return;
+    await fetch(`${API_TASKS}?id=${task.id}`, { method: "DELETE" });
+    setTasks(ts => ts.filter(t => t.id !== task.id));
+    setArchivedTasks(ar => ar.filter(t => t.id !== task.id));
+    if (viewTask?.id === task.id) setViewTask(null);
+  }
+
   async function openViewTask(task: Task) {
     setViewTask(task);
     setCommentText("");
@@ -592,6 +600,9 @@ export default function Index() {
                                 <Icon name="CheckCircle2" size={15} />
                               </button>
                             )}
+                            <button onClick={() => deleteTask(task)} className="text-gray-300 hover:text-red-500 transition-colors" title="Удалить задачу">
+                              <Icon name="Trash2" size={15} />
+                            </button>
                           </div>
                         </td>
                       )}
@@ -639,6 +650,15 @@ export default function Index() {
                           className="text-gray-300 hover:text-[#1E3A5F] transition-colors"
                         >
                           <Icon name="Pencil" size={15} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          onClick={e => { e.stopPropagation(); deleteTask(task); }}
+                          className="text-gray-300 hover:text-red-500 transition-colors"
+                          title="Удалить"
+                        >
+                          <Icon name="Trash2" size={15} />
                         </button>
                       )}
                     </div>

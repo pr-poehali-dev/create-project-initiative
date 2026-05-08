@@ -46,10 +46,10 @@ def fmt_deadline(d):
     return f"{parts[2]}.{parts[1]}.{parts[0]}" if len(parts) == 3 else str(d)
 
 def handler(event: dict, context) -> dict:
-    """CRUD задач + комментарии. Уведомления в Telegram при назначении задачи."""
+    """CRUD задач + комментарии + удаление. Уведомления в Telegram при назначении задачи."""
     cors = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Content-Type': 'application/json',
     }
@@ -194,6 +194,19 @@ def handler(event: dict, context) -> dict:
         result = {'id': r[0], 'title': r[1], 'deadline': str(r[2]), 'status': r[3], 'created_at': str(r[4]),
                   'assignee': {'id': r[5], 'name': r[6], 'tag': r[7]} if r[5] else None}
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps(result, ensure_ascii=False)}
+
+    # DELETE — удалить задачу
+    if method == 'DELETE':
+        params_del = event.get('queryStringParameters') or {}
+        task_id = params_del.get('id')
+        if not task_id:
+            conn.close()
+            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'id required'})}
+        cur.execute("DELETE FROM task_comments WHERE task_id = %s", (task_id,))
+        cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+        conn.commit()
+        conn.close()
+        return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'ok': True})}
 
     conn.close()
     return {'statusCode': 405, 'headers': cors, 'body': json.dumps({'error': 'Method not allowed'})}
