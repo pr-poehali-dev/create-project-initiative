@@ -8,13 +8,19 @@
       "bodyMatcher": "none"
     },
     {
-      "name": "POST create assignee with email",
-      "method": "POST",
-      "path": "/",
-      "body": {"name": "Тестов Тест", "email": "test@example.com"},
-      "expectedStatus": 201,
-      "expectedBody": {"name": "Тестов Тест", "email": "test@example.com"},
+      "name": "Login setter vyacheslav_dof",
+      "method": "GET",
+      "path": "/?action=login&tg=@vyacheslav_dof",
+      "expectedStatus": 200,
+      "expectedBody": {"role": "setter"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login unknown user returns 403",
+      "method": "GET",
+      "path": "/?action=login&tg=@unknown_user_xyz",
+      "expectedStatus": 403,
+      "bodyMatcher": "none"
     }
   ]
 }

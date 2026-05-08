@@ -1,18 +1,21 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 
 const API_ASSIGNEES = "https://functions.poehali.dev/defb4901-3a86-4c40-923f-96cdf4be23ac";
 const API_TASKS = "https://functions.poehali.dev/53d318bd-f60a-459d-b3d4-4a534d7989b4";
-const ADMIN_EMAILS = ["7@dosfond.ru", "1@dosfond.ru"];
-const LS_KEY = "journal_user_tag";
+const LS_KEY = "journal_user_v2";
+
+// Постановщики (по TG username lowercase)
+const SETTER_TGS = ["vyacheslav_dof", "big_nick87"];
 
 type Status = "Новая" | "В работе" | "На проверке" | "Выполнена" | "Просрочена";
+type Tab = "active" | "archive";
 
 interface Assignee {
   id: number;
   name: string;
-  tag: string;
-  email?: string;
+  telegram_username: string;
+  telegram_chat_id?: number | null;
 }
 
 interface Task {
@@ -20,7 +23,15 @@ interface Task {
   title: string;
   deadline: string;
   status: Status;
-  assignee: Assignee | null;
+  assignee: { id: number; name: string; tag: string } | null;
+}
+
+interface Comment {
+  id: number;
+  task_id: number;
+  text: string;
+  created_at: string;
+  assignee: { id: number; name: string; tag: string };
 }
 
 const STATUS_CONFIG: Record<Status, { color: string; bg: string }> = {
@@ -31,7 +42,7 @@ const STATUS_CONFIG: Record<Status, { color: string; bg: string }> = {
   "Просрочена":  { color: "text-[#7B241C]",  bg: "bg-[#FDEDEC]" },
 };
 
-const ALL_STATUSES: Status[] = ["Новая", "В работе", "На проверке", "Выполнена", "Просрочена"];
+const ACTIVE_STATUSES: Status[] = ["Новая", "В работе", "На проверке", "Просрочена"];
 
 function formatDate(iso: string) {
   if (!iso) return "—";
@@ -44,283 +55,192 @@ function isOverdue(deadline: string, status: Status) {
   return new Date(deadline) < new Date();
 }
 
-type ModalMode = "task" | "assignee" | null;
+// ─── Экран входа ──────────────────────────────────────────────────────────────
 
-// ─── Вводный экран ────────────────────────────────────────────────────────────
-
-interface WelcomeScreenProps {
-  onEnter: (assignee: Assignee) => void;
-  onAdmin: () => void;
+interface LoginScreenProps {
+  onEnter: (user: { role: "setter" | "executor"; tg: string; assignee?: Assignee }) => void;
 }
 
-function WelcomeScreen({ onEnter, onAdmin }: WelcomeScreenProps) {
-  const [mode, setMode] = useState<"choose" | "register" | "login">("choose");
-  const [form, setForm] = useState({ name: "", email: "", telegram_username: "" });
-  const [tag, setTag] = useState("");
+function LoginScreen({ onEnter }: LoginScreenProps) {
+  const [tg, setTg] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState<Assignee | null>(null);
-
-  async function handleRegister() {
-    if (!form.name.trim()) return;
-    setLoading(true);
-    setError("");
-    const res = await fetch(API_ASSIGNEES, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: form.name.trim(), email: form.email.trim(), telegram_username: form.telegram_username.trim() || null }),
-    });
-    const raw = await res.json();
-    const created: Assignee = typeof raw === "string" ? JSON.parse(raw) : raw;
-    setLoading(false);
-    if (created.id) {
-      if (created.email && ADMIN_EMAILS.includes(created.email.toLowerCase())) {
-        onAdmin();
-      } else {
-        setSuccess(created);
-      }
-    } else {
-      setError("Не удалось зарегистрироваться. Попробуй ещё раз.");
-    }
-  }
 
   async function handleLogin() {
-    const t = tag.trim().startsWith("@") ? tag.trim() : `@${tag.trim()}`;
-    if (!t || t === "@") return;
+    const clean = tg.trim().lstrip?.("@") ?? tg.trim().replace(/^@/, "");
+    if (!clean) return;
     setLoading(true);
     setError("");
-    const res = await fetch(API_ASSIGNEES);
-    const raw = await res.json();
-    const list: Assignee[] = Array.isArray(raw) ? raw : JSON.parse(raw);
-    const found = list.find(a => a.tag.toLowerCase() === t.toLowerCase());
+    const res = await fetch(`${API_ASSIGNEES}?action=login&tg=@${clean}`);
+    const data = await res.json();
     setLoading(false);
-    if (found) {
-      if (found.email && ADMIN_EMAILS.includes(found.email.toLowerCase())) {
-        onAdmin();
-      } else {
-        onEnter(found);
-      }
-    } else {
-      setError("Тег не найден. Проверь правильность или зарегистрируйся.");
+    if (res.status === 403 || data.error === "not_allowed") {
+      setError("Тебя нет в списке пользователей системы.");
+      return;
     }
-  }
-
-  if (success) {
-    return (
-      <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8 text-center">
-          <div className="w-16 h-16 bg-[#E9F7EF] rounded-full flex items-center justify-center mx-auto mb-4">
-            <Icon name="CheckCircle2" size={32} className="text-[#145A32]" />
-          </div>
-          <p className="text-[#1E3A5F] font-bold text-lg mb-1">{success.name}</p>
-          <p className="text-gray-400 text-sm mb-5">успешно зарегистрирован</p>
-          <div className="bg-[#D6EAF8] rounded-xl px-6 py-4 mb-2">
-            <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Твой личный тег</p>
-            <span className="font-mono text-[#1A5276] font-bold text-2xl">{success.tag}</span>
-          </div>
-          <p className="text-[11px] text-gray-400 mb-6">Запомни тег — он нужен для входа в следующий раз</p>
-          <button
-            onClick={() => onEnter(success)}
-            className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors"
-          >
-            Перейти к задачам
-          </button>
-        </div>
-      </div>
-    );
+    if (!res.ok) {
+      setError("Ошибка входа. Попробуй ещё раз.");
+      return;
+    }
+    if (data.role === "setter") {
+      onEnter({ role: "setter", tg: clean });
+    } else {
+      onEnter({ role: "executor", tg: clean, assignee: data });
+    }
   }
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
-        {/* Лого */}
         <div className="flex items-center gap-3 mb-8">
           <div className="w-10 h-10 bg-[#1E3A5F] rounded-lg flex items-center justify-center">
             <Icon name="ClipboardList" size={22} className="text-white" />
           </div>
           <div>
             <p className="text-[#1E3A5F] font-bold text-base leading-tight">Журнал задач</p>
+            <p className="text-gray-400 text-xs">ДОС Фонд</p>
           </div>
         </div>
 
-        {mode === "choose" && (
-          <>
-            <h2 className="text-[#1E3A5F] font-bold text-xl mb-2">Добро пожаловать</h2>
-            <p className="text-gray-500 text-sm mb-7">Выбери, как хочешь войти</p>
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => setMode("register")}
-                className="w-full bg-[#1E3A5F] text-white rounded-xl py-3.5 font-semibold hover:bg-[#16304F] transition-colors flex items-center justify-center gap-2"
-              >
-                <Icon name="UserPlus" size={18} />
-                Первый раз — зарегистрироваться
-              </button>
-              <button
-                onClick={() => setMode("login")}
-                className="w-full border-2 border-[#1E3A5F] text-[#1E3A5F] rounded-xl py-3.5 font-semibold hover:bg-[#E8EFF7] transition-colors flex items-center justify-center gap-2"
-              >
-                <Icon name="LogIn" size={18} />
-                У меня есть тег — войти
-              </button>
+        <h2 className="text-[#1E3A5F] font-bold text-xl mb-1">Вход</h2>
+        <p className="text-gray-500 text-sm mb-6">Введи свой Telegram username</p>
 
-            </div>
-          </>
-        )}
-
-        {mode === "register" && (
-          <>
-            <button onClick={() => { setMode("choose"); setError(""); }} className="flex items-center gap-1.5 text-gray-400 text-sm mb-5 hover:text-[#1E3A5F] transition-colors">
-              <Icon name="ChevronLeft" size={16} />
-              Назад
-            </button>
-            <h2 className="text-[#1E3A5F] font-bold text-xl mb-1">Регистрация</h2>
-            <p className="text-gray-500 text-sm mb-6">Один раз — и ты в системе</p>
-            <div className="flex flex-col gap-4">
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Полное имя</label>
-                <input
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="Фамилия Имя Отчество"
-                  className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Email</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  placeholder="example@mail.ru"
-                  className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Telegram username</label>
-                <input
-                  value={form.telegram_username}
-                  onChange={e => setForm(f => ({ ...f, telegram_username: e.target.value }))}
-                  placeholder="@username"
-                  className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                  onKeyDown={e => { if (e.key === "Enter") handleRegister(); }}
-                />
-                <p className="text-[11px] text-gray-400 mt-1.5">Укажи, чтобы получать уведомления о задачах в Telegram</p>
-              </div>
-              {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2">{error}</p>}
-              <button
-                onClick={handleRegister}
-                disabled={!form.name.trim() || loading}
-                className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-1"
-              >
-                {loading ? "Регистрируем..." : "Зарегистрироваться"}
-              </button>
-            </div>
-          </>
-        )}
-
-        {mode === "login" && (
-          <>
-            <button onClick={() => { setMode("choose"); setError(""); }} className="flex items-center gap-1.5 text-gray-400 text-sm mb-5 hover:text-[#1E3A5F] transition-colors">
-              <Icon name="ChevronLeft" size={16} />
-              Назад
-            </button>
-            <h2 className="text-[#1E3A5F] font-bold text-xl mb-1">Вход по тегу</h2>
-            <p className="text-gray-500 text-sm mb-6">Введи свой личный тег из письма</p>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Личный тег</label>
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Telegram username</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm">@</span>
               <input
-                value={tag}
-                onChange={e => setTag(e.target.value)}
-                placeholder="@ivanov"
-                className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                value={tg.replace(/^@/, "")}
+                onChange={e => setTg(e.target.value.replace(/^@/, ""))}
                 onKeyDown={e => { if (e.key === "Enter") handleLogin(); }}
+                placeholder="username"
+                className="w-full border border-gray-300 rounded-lg pl-8 pr-3.5 py-3 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
               />
             </div>
-            {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2 mt-3">{error}</p>}
-            <button
-              onClick={handleLogin}
-              disabled={!tag.trim() || loading}
-              className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-5"
-            >
-              {loading ? "Проверяем..." : "Войти"}
-            </button>
-          </>
-        )}
+          </div>
+          {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2">{error}</p>}
+          <button
+            onClick={handleLogin}
+            disabled={!tg.replace(/^@/, "").trim() || loading}
+            className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {loading ? "Проверяем..." : "Войти"}
+          </button>
+          <div className="bg-[#F4F6F9] rounded-lg px-4 py-3 text-[11px] text-gray-500 flex items-start gap-2">
+            <Icon name="Info" size={13} className="text-gray-400 shrink-0 mt-0.5" />
+            <span>Доступ только для сотрудников ДОС Фонда. Используй свой Telegram username без @.</span>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
+// ─── Голосовой ввод ───────────────────────────────────────────────────────────
+
+function useVoiceInput(onResult: (text: string) => void) {
+  const [listening, setListening] = useState(false);
+  const recRef = useRef<SpeechRecognition | null>(null);
+
+  function start() {
+    const SR = (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition || (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
+    if (!SR) return;
+    const rec = new SR();
+    rec.lang = "ru-RU";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e: SpeechRecognitionEvent) => {
+      const text = e.results[0][0].transcript;
+      onResult(text);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
+    rec.start();
+    setListening(true);
+  }
+
+  function stop() {
+    recRef.current?.stop();
+    setListening(false);
+  }
+
+  return { listening, start, stop };
+}
+
 // ─── Главный компонент ────────────────────────────────────────────────────────
 
 export default function Index() {
-  const [currentUser, setCurrentUser] = useState<Assignee | "admin" | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ role: "setter" | "executor"; tg: string; assignee?: Assignee } | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("active");
 
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterDeadline, setFilterDeadline] = useState<"all" | "today" | "week" | "overdue">("all");
 
-  const [modalMode, setModalMode] = useState<ModalMode>(null);
+  // Task modal
+  const [taskModal, setTaskModal] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", assignee_id: "" as string | number, deadline: "", status: "Новая" as Status, setter: "7@dosfond.ru" });
-  const [assigneeForm, setAssigneeForm] = useState({ name: "", email: "", telegram_username: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", assignee_id: "", deadline: "", status: "Новая" as Status });
   const [saving, setSaving] = useState(false);
-  const [newTag, setNewTag] = useState<string | null>(null);
 
-  interface Comment { id: number; task_id: number; text: string; created_at: string; assignee: { id: number; name: string; tag: string }; }
+  // View task + comments
   const [viewTask, setViewTask] = useState<Task | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [commentSaving, setCommentSaving] = useState(false);
 
-  // Восстанавливаем сессию из localStorage
+  const isAdmin = currentUser?.role === "setter";
+
+  // Voice input
+  const { listening, start: startVoice, stop: stopVoice } = useVoiceInput((text) => {
+    setTaskForm(f => ({ ...f, title: text }));
+    if (!taskModal) setTaskModal(true);
+  });
+
+  // Restore session
   useEffect(() => {
     const saved = localStorage.getItem(LS_KEY);
-    if (saved === "admin") {
-      setCurrentUser("admin");
-    } else if (saved) {
+    if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed?.tag) setCurrentUser(parsed);
-      } catch (_) { /* ignore */ }
+        if (parsed?.role) setCurrentUser(parsed);
+      } catch { /* ignore */ }
     }
   }, []);
 
-  // Загружаем данные когда пользователь вошёл
+  // Load data
   useEffect(() => {
     if (!currentUser) return;
     setLoading(true);
     Promise.all([
       fetch(API_ASSIGNEES).then(r => r.json()),
       fetch(API_TASKS).then(r => r.json()),
-    ]).then(([a, t]) => {
-      const aList: Assignee[] = Array.isArray(a) ? a : JSON.parse(a);
-      const tList: Task[] = Array.isArray(t) ? t : JSON.parse(t);
-      setAssignees(aList);
-      setTasks(tList);
+      fetch(`${API_TASKS}?archived=1`).then(r => r.json()),
+    ]).then(([a, t, ar]) => {
+      setAssignees(Array.isArray(a) ? a : []);
+      setTasks(Array.isArray(t) ? t : []);
+      setArchivedTasks(Array.isArray(ar) ? ar : []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [currentUser]);
 
-  // При входе исполнителя — фильтруем сразу по нему
+  // Auto-filter for executor
   useEffect(() => {
-    if (currentUser && currentUser !== "admin") {
-      setFilterAssignee(String((currentUser as Assignee).id));
+    if (currentUser?.role === "executor" && currentUser.assignee) {
+      setFilterAssignee(String(currentUser.assignee.id));
     }
   }, [currentUser]);
 
-  function handleEnter(assignee: Assignee) {
-    localStorage.setItem(LS_KEY, JSON.stringify(assignee));
-    setCurrentUser(assignee);
-  }
-
-  function handleAdmin() {
-    localStorage.setItem(LS_KEY, "admin");
-    setCurrentUser("admin");
+  function handleEnter(user: { role: "setter" | "executor"; tg: string; assignee?: Assignee }) {
+    localStorage.setItem(LS_KEY, JSON.stringify(user));
+    setCurrentUser(user);
   }
 
   function handleLogout() {
@@ -331,77 +251,44 @@ export default function Index() {
     setFilterDeadline("all");
   }
 
-  const isAdmin = currentUser === "admin";
-
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weekEnd = new Date(today);
   weekEnd.setDate(today.getDate() + 7);
 
-  const filtered = useMemo(() => {
-    return tasks.filter(t => {
-      if (filterAssignee !== "all" && String(t.assignee?.id) !== filterAssignee) return false;
-      if (filterStatus !== "all" && t.status !== filterStatus) return false;
-      if (filterDeadline !== "all") {
-        const d = new Date(t.deadline);
-        d.setHours(0, 0, 0, 0);
-        if (filterDeadline === "today" && d.getTime() !== today.getTime()) return false;
-        if (filterDeadline === "week" && (d < today || d > weekEnd)) return false;
-        if (filterDeadline === "overdue" && !isOverdue(t.deadline, t.status)) return false;
-      }
-      return true;
-    });
-  }, [tasks, filterAssignee, filterStatus, filterDeadline]);
+  const activeTasks = useMemo(() => tasks.filter(t => {
+    if (filterAssignee !== "all" && String(t.assignee?.id) !== filterAssignee) return false;
+    if (filterStatus !== "all" && t.status !== filterStatus) return false;
+    if (filterDeadline !== "all") {
+      const d = new Date(t.deadline);
+      d.setHours(0, 0, 0, 0);
+      if (filterDeadline === "today" && d.getTime() !== today.getTime()) return false;
+      if (filterDeadline === "week" && (d < today || d > weekEnd)) return false;
+      if (filterDeadline === "overdue" && !isOverdue(t.deadline, t.status)) return false;
+    }
+    return true;
+  }), [tasks, filterAssignee, filterStatus, filterDeadline]);
+
+  const filteredArchive = useMemo(() => {
+    if (!isAdmin) return archivedTasks.filter(t => t.assignee?.id === currentUser?.assignee?.id);
+    return archivedTasks;
+  }, [archivedTasks, isAdmin, currentUser]);
 
   function openAddTask() {
     setEditTask(null);
-    setTaskForm({ title: "", assignee_id: "", deadline: "", status: "Новая", setter: "7@dosfond.ru" });
-    setModalMode("task");
+    setTaskForm({ title: "", assignee_id: "", deadline: "", status: "Новая" });
+    setTaskModal(true);
   }
 
   function openEditTask(task: Task) {
     setEditTask(task);
     setTaskForm({
       title: task.title,
-      assignee_id: task.assignee?.id ?? "",
+      assignee_id: String(task.assignee?.id ?? ""),
       deadline: task.deadline,
       status: task.status,
-      setter: "7@dosfond.ru",
     });
-    setModalMode("task");
-  }
-
-  function openAddAssignee() {
-    setAssigneeForm({ name: "", email: "", telegram_username: "" });
-    setNewTag(null);
-    setModalMode("assignee");
-  }
-
-  async function openViewTask(task: Task) {
-    setViewTask(task);
-    setCommentText("");
-    setCommentsLoading(true);
-    const res = await fetch(`${API_TASKS}?comments=1&task_id=${task.id}`);
-    const raw = await res.json();
-    setComments(Array.isArray(raw) ? raw : JSON.parse(raw));
-    setCommentsLoading(false);
-  }
-
-  async function submitComment() {
-    if (!commentText.trim() || !viewTask || typeof currentUser === "string" || !currentUser) return;
-    setCommentSaving(true);
-    const res = await fetch(`${API_TASKS}?action=comment`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task_id: viewTask.id, assignee_id: currentUser.id, text: commentText.trim() }),
-    });
-    const raw = await res.json();
-    const created = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (created.id) {
-      setComments(c => [...c, created]);
-      setCommentText("");
-    }
-    setCommentSaving(false);
+    setTaskModal(true);
   }
 
   async function saveTask() {
@@ -412,14 +299,20 @@ export default function Index() {
       deadline: taskForm.deadline,
       status: taskForm.status,
       assignee_id: taskForm.assignee_id || null,
-      setter: taskForm.setter,
+      setter_tg: currentUser?.tg ?? "",
     };
     if (editTask) {
       body.id = editTask.id;
       const res = await fetch(API_TASKS, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const raw = await res.json();
       const updated: Task = typeof raw === "string" ? JSON.parse(raw) : raw;
-      setTasks(ts => ts.map(t => t.id === editTask.id ? updated : t));
+      // Если статус стал Выполнена — переносим в архив
+      if (updated.status === "Выполнена") {
+        setTasks(ts => ts.filter(t => t.id !== editTask.id));
+        setArchivedTasks(ar => [updated, ...ar.filter(t => t.id !== updated.id)]);
+      } else {
+        setTasks(ts => ts.map(t => t.id === editTask.id ? updated : t));
+      }
     } else {
       const res = await fetch(API_TASKS, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const raw = await res.json();
@@ -427,57 +320,82 @@ export default function Index() {
       setTasks(ts => [created, ...ts]);
     }
     setSaving(false);
-    setModalMode(null);
+    setTaskModal(false);
   }
 
-  async function saveAssignee() {
-    if (!assigneeForm.name.trim()) return;
-    setSaving(true);
-    const res = await fetch(API_ASSIGNEES, {
+  async function completeTask(task: Task) {
+    const body = { id: task.id, status: "Выполнена", setter_tg: currentUser?.tg ?? "" };
+    const res = await fetch(API_TASKS, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const raw = await res.json();
+    const updated: Task = typeof raw === "string" ? JSON.parse(raw) : raw;
+    setTasks(ts => ts.filter(t => t.id !== task.id));
+    setArchivedTasks(ar => [updated, ...ar]);
+  }
+
+  async function openViewTask(task: Task) {
+    setViewTask(task);
+    setCommentText("");
+    setCommentsLoading(true);
+    const res = await fetch(`${API_TASKS}?comments=1&task_id=${task.id}`);
+    const raw = await res.json();
+    setComments(Array.isArray(raw) ? raw : []);
+    setCommentsLoading(false);
+  }
+
+  async function submitComment() {
+    if (!commentText.trim() || !viewTask || !currentUser?.assignee) return;
+    setCommentSaving(true);
+    const res = await fetch(`${API_TASKS}?action=comment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: assigneeForm.name, email: assigneeForm.email || null, telegram_username: assigneeForm.telegram_username || null }),
+      body: JSON.stringify({ task_id: viewTask.id, assignee_id: currentUser.assignee.id, text: commentText.trim() }),
     });
     const raw = await res.json();
-    const created: Assignee = typeof raw === "string" ? JSON.parse(raw) : raw;
-    setAssignees(prev => [...prev, created]);
-    setNewTag(created.tag);
-    setSaving(false);
+    const created = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (created.id) {
+      setComments(c => [...c, created]);
+      setCommentText("");
+    }
+    setCommentSaving(false);
   }
 
   const hasFilters = filterAssignee !== "all" || filterStatus !== "all" || filterDeadline !== "all";
 
-  // Показываем вводный экран если не вошли
   if (!currentUser) {
-    return <WelcomeScreen onEnter={handleEnter} onAdmin={handleAdmin} />;
+    return <LoginScreen onEnter={handleEnter} />;
   }
+
+  const displayedTasks = tab === "active" ? activeTasks : filteredArchive;
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] font-sans">
       {/* Header */}
-      <header className="bg-[#1E3A5F] text-white px-4 md:px-8 py-4 md:py-5 shadow-lg">
+      <header className="bg-[#1E3A5F] text-white px-4 md:px-8 py-4 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 md:w-9 md:h-9 bg-white/15 rounded flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 bg-white/15 rounded flex items-center justify-center shrink-0">
               <Icon name="ClipboardList" size={18} className="text-white" />
             </div>
-            <h1 className="text-base md:text-lg font-semibold tracking-wide leading-tight">Журнал задач</h1>
+            <div>
+              <h1 className="text-base font-semibold leading-tight">Журнал задач</h1>
+              <p className="text-white/50 text-[11px] leading-tight">ДОС Фонд</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 bg-white/10 border border-white/20 px-2.5 py-1.5 rounded">
-              <Icon name="User" size={13} className="text-white/60" />
-              <span className="text-white/80 font-mono text-xs">
-                {isAdmin ? "Постановщик" : (currentUser as Assignee).tag}
-              </span>
+              <Icon name="Send" size={12} className="text-white/60" />
+              <span className="text-white/80 font-mono text-xs">@{currentUser.tg}</span>
             </div>
             {isAdmin && (
               <>
+                {/* Голосовой ввод */}
                 <button
-                  onClick={openAddAssignee}
-                  className="flex items-center gap-1.5 bg-white/10 border border-white/20 text-white px-2.5 py-1.5 text-xs font-medium rounded hover:bg-white/20 transition-colors"
+                  onClick={listening ? stopVoice : startVoice}
+                  title="Голосовой ввод задачи"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded transition-colors ${listening ? "bg-red-500 text-white animate-pulse" : "bg-white/10 border border-white/20 text-white hover:bg-white/20"}`}
                 >
-                  <Icon name="UserPlus" size={14} />
-                  <span className="hidden sm:inline">Добавить исполнителя</span>
+                  <Icon name="Mic" size={14} />
+                  <span className="hidden sm:inline">{listening ? "Говорите..." : "Голос"}</span>
                 </button>
                 <button
                   onClick={openAddTask}
@@ -488,24 +406,20 @@ export default function Index() {
                 </button>
               </>
             )}
-            <button
-              onClick={handleLogout}
-              className="text-white/50 hover:text-white transition-colors p-1"
-              title="Выйти"
-            >
+            <button onClick={handleLogout} className="text-white/50 hover:text-white transition-colors p-1" title="Выйти">
               <Icon name="LogOut" size={16} />
             </button>
           </div>
         </div>
-        {/* Мобильные кнопки постановщика */}
+        {/* Мобильные кнопки */}
         {isAdmin && (
           <div className="flex sm:hidden gap-2 mt-3">
             <button
-              onClick={openAddAssignee}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-white/10 border border-white/20 text-white py-2 text-xs font-medium rounded hover:bg-white/20 transition-colors"
+              onClick={listening ? stopVoice : startVoice}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded transition-colors ${listening ? "bg-red-500 text-white animate-pulse" : "bg-white/10 border border-white/20 text-white hover:bg-white/20"}`}
             >
-              <Icon name="UserPlus" size={14} />
-              Добавить исполнителя
+              <Icon name="Mic" size={14} />
+              {listening ? "Говорите..." : "Голосовой ввод"}
             </button>
             <button
               onClick={openAddTask}
@@ -519,83 +433,108 @@ export default function Index() {
       </header>
 
       <main className="px-4 md:px-8 py-4 md:py-6 max-w-7xl mx-auto">
-        {/* Stats */}
-        <div className="grid grid-cols-5 gap-2 md:gap-3 mb-4 md:mb-6">
-          {ALL_STATUSES.map(s => {
-            const count = tasks.filter(t => t.status === s).length;
-            const cfg = STATUS_CONFIG[s];
-            return (
-              <div key={s} className="bg-white border border-gray-200 rounded p-2 md:p-4 flex flex-col gap-1">
-                <span className="text-xl md:text-2xl font-bold text-[#1E3A5F]">{count}</span>
-                <span className={`text-[9px] md:text-[11px] font-semibold px-1.5 py-0.5 rounded w-fit ${cfg.bg} ${cfg.color}`}>{s}</span>
-              </div>
-            );
-          })}
-        </div>
 
-        {/* Filters */}
-        <div className="bg-white border border-gray-200 rounded p-3 md:p-4 mb-4 flex flex-col md:flex-row flex-wrap gap-3 md:gap-4 md:items-end">
-          {isAdmin && (
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Исполнитель</label>
-              <select
-                value={filterAssignee}
-                onChange={e => setFilterAssignee(e.target.value)}
-                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[200px]"
-              >
-                <option value="all">Все исполнители</option>
-                {assignees.map(a => <option key={a.id} value={String(a.id)}>{a.name} {a.tag}</option>)}
-              </select>
-            </div>
-          )}
-
-          <div className="flex gap-3">
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Статус</label>
-              <select
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[160px]"
-              >
-                <option value="all">Все статусы</option>
-                {ALL_STATUSES.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Сроки</label>
-              <select
-                value={filterDeadline}
-                onChange={e => setFilterDeadline(e.target.value as typeof filterDeadline)}
-                className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[160px]"
-              >
-                <option value="all">Все сроки</option>
-                <option value="today">Сегодня</option>
-                <option value="week">На этой неделе</option>
-                <option value="overdue">Просроченные</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between md:contents">
-            {hasFilters && (
-              <button
-                onClick={() => {
-                  setFilterStatus("all");
-                  setFilterDeadline("all");
-                  if (isAdmin) setFilterAssignee("all");
-                }}
-                className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#1E3A5F] transition-colors"
-              >
-                <Icon name="X" size={14} />
-                Сбросить
-              </button>
+        {/* Вкладки */}
+        <div className="flex gap-1 mb-4 bg-white border border-gray-200 rounded p-1 w-fit">
+          <button
+            onClick={() => setTab("active")}
+            className={`px-4 py-2 text-sm font-semibold rounded transition-colors ${tab === "active" ? "bg-[#1E3A5F] text-white" : "text-gray-500 hover:text-[#1E3A5F]"}`}
+          >
+            Активные
+            {tasks.length > 0 && (
+              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${tab === "active" ? "bg-white/20 text-white" : "bg-[#E8EFF7] text-[#1E3A5F]"}`}>
+                {tasks.length}
+              </span>
             )}
-            <span className="text-sm text-gray-400 md:ml-auto">
-              Найдено: <strong className="text-[#1E3A5F]">{filtered.length}</strong>
-            </span>
-          </div>
+          </button>
+          <button
+            onClick={() => setTab("archive")}
+            className={`px-4 py-2 text-sm font-semibold rounded transition-colors flex items-center gap-1.5 ${tab === "archive" ? "bg-[#1E3A5F] text-white" : "text-gray-500 hover:text-[#1E3A5F]"}`}
+          >
+            <Icon name="Archive" size={14} />
+            Архив
+            {archivedTasks.length > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${tab === "archive" ? "bg-white/20 text-white" : "bg-[#E8EFF7] text-[#1E3A5F]"}`}>
+                {archivedTasks.length}
+              </span>
+            )}
+          </button>
         </div>
+
+        {/* Статистика (только активные) */}
+        {tab === "active" && (
+          <div className="grid grid-cols-4 gap-2 md:gap-3 mb-4">
+            {ACTIVE_STATUSES.map(s => {
+              const count = tasks.filter(t => t.status === s).length;
+              const cfg = STATUS_CONFIG[s];
+              return (
+                <div key={s} className="bg-white border border-gray-200 rounded p-2 md:p-4 flex flex-col gap-1">
+                  <span className="text-xl md:text-2xl font-bold text-[#1E3A5F]">{count}</span>
+                  <span className={`text-[9px] md:text-[11px] font-semibold px-1.5 py-0.5 rounded w-fit ${cfg.bg} ${cfg.color}`}>{s}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Фильтры (только активные и только для постановщика) */}
+        {tab === "active" && (
+          <div className="bg-white border border-gray-200 rounded p-3 md:p-4 mb-4 flex flex-col md:flex-row flex-wrap gap-3 md:gap-4 md:items-end">
+            {isAdmin && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Исполнитель</label>
+                <select
+                  value={filterAssignee}
+                  onChange={e => setFilterAssignee(e.target.value)}
+                  className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[200px]"
+                >
+                  <option value="all">Все исполнители</option>
+                  {assignees.map(a => <option key={a.id} value={String(a.id)}>{a.name} ({a.telegram_username})</option>)}
+                </select>
+              </div>
+            )}
+            <div className="flex gap-3">
+              <div className="flex flex-col gap-1 flex-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Статус</label>
+                <select
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
+                >
+                  <option value="all">Все статусы</option>
+                  {ACTIVE_STATUSES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1 flex-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Сроки</label>
+                <select
+                  value={filterDeadline}
+                  onChange={e => setFilterDeadline(e.target.value as typeof filterDeadline)}
+                  className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
+                >
+                  <option value="all">Все сроки</option>
+                  <option value="today">Сегодня</option>
+                  <option value="week">На неделе</option>
+                  <option value="overdue">Просроченные</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center justify-between md:contents">
+              {hasFilters && (
+                <button
+                  onClick={() => { setFilterStatus("all"); setFilterDeadline("all"); if (isAdmin) setFilterAssignee("all"); }}
+                  className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#1E3A5F] transition-colors"
+                >
+                  <Icon name="X" size={14} />
+                  Сбросить
+                </button>
+              )}
+              <span className="text-sm text-gray-400 md:ml-auto">
+                Найдено: <strong className="text-[#1E3A5F]">{activeTasks.length}</strong>
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Таблица — десктоп */}
         <div className="hidden md:block bg-white border border-gray-200 rounded overflow-hidden">
@@ -604,29 +543,25 @@ export default function Index() {
               <tr className="bg-[#1E3A5F] text-white">
                 <th className="text-left px-4 py-3.5 font-semibold w-16 text-[10px] uppercase tracking-widest">№</th>
                 <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest">Название задачи</th>
-                <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest w-56">Исполнитель</th>
+                <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest w-52">Исполнитель</th>
                 <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest w-32">Срок</th>
                 <th className="text-left px-4 py-3.5 font-semibold text-[10px] uppercase tracking-widest w-36">Статус</th>
-                {isAdmin && <th className="px-4 py-3.5 w-16"></th>}
+                {isAdmin && <th className="px-4 py-3.5 w-24 text-[10px] uppercase tracking-widest text-center">Действия</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={6} className="text-center py-16 text-gray-400">
-                    <Icon name="Loader2" size={28} className="mx-auto mb-2 text-gray-300 animate-spin" />
-                    <p className="text-sm">Загрузка...</p>
-                  </td>
-                </tr>
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="text-center py-16 text-gray-400">
-                    <Icon name="SearchX" size={32} className="mx-auto mb-2 text-gray-300" />
-                    <p className="text-sm">Задачи не найдены</p>
-                  </td>
-                </tr>
+                <tr><td colSpan={6} className="text-center py-16 text-gray-400">
+                  <Icon name="Loader2" size={28} className="mx-auto mb-2 animate-spin" />
+                  <p className="text-sm">Загрузка...</p>
+                </td></tr>
+              ) : displayedTasks.length === 0 ? (
+                <tr><td colSpan={6} className="text-center py-16 text-gray-400">
+                  <Icon name={tab === "archive" ? "Archive" : "SearchX"} size={32} className="mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">{tab === "archive" ? "Архив пуст" : "Задачи не найдены"}</p>
+                </td></tr>
               ) : (
-                filtered.map((task, idx) => {
+                displayedTasks.map((task, idx) => {
                   const cfg = STATUS_CONFIG[task.status];
                   const overdue = isOverdue(task.deadline, task.status);
                   return (
@@ -635,26 +570,29 @@ export default function Index() {
                       <td className="px-4 py-3.5 text-[#1E3A5F] font-medium">{task.title}</td>
                       <td className="px-4 py-3.5">
                         {task.assignee ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-700 text-sm">{task.assignee.name}</span>
-                            <span className="text-[11px] font-mono text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded">{task.assignee.tag}</span>
-                          </div>
+                          <span className="font-mono text-xs text-[#1A5276] bg-[#D6EAF8] px-2 py-0.5 rounded">{task.assignee.tag}</span>
                         ) : (
                           <span className="text-gray-300 text-sm italic">не назначен</span>
                         )}
                       </td>
                       <td className={`px-4 py-3.5 font-mono text-xs ${overdue ? "text-[#7B241C] font-bold" : "text-gray-600"}`}>
-                        {formatDate(task.deadline)}
-                        {overdue && <span className="ml-1.5">●</span>}
+                        {formatDate(task.deadline)}{overdue && <span className="ml-1">●</span>}
                       </td>
                       <td className="px-4 py-3.5">
                         <span className={`text-[11px] font-semibold px-2.5 py-1 rounded ${cfg.bg} ${cfg.color}`}>{task.status}</span>
                       </td>
                       {isAdmin && (
-                        <td className="px-4 py-3.5">
-                          <button onClick={() => openEditTask(task)} className="text-gray-300 hover:text-[#1E3A5F] transition-colors">
-                            <Icon name="Pencil" size={15} />
-                          </button>
+                        <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-2">
+                            <button onClick={() => openEditTask(task)} className="text-gray-300 hover:text-[#1E3A5F] transition-colors" title="Редактировать">
+                              <Icon name="Pencil" size={15} />
+                            </button>
+                            {tab === "active" && (
+                              <button onClick={() => completeTask(task)} className="text-gray-300 hover:text-[#145A32] transition-colors" title="Завершить задачу">
+                                <Icon name="CheckCircle2" size={15} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -669,16 +607,15 @@ export default function Index() {
         <div className="md:hidden flex flex-col gap-3">
           {loading ? (
             <div className="text-center py-12 text-gray-400">
-              <Icon name="Loader2" size={28} className="mx-auto mb-2 text-gray-300 animate-spin" />
-              <p className="text-sm">Загрузка...</p>
+              <Icon name="Loader2" size={28} className="mx-auto mb-2 animate-spin" />
             </div>
-          ) : filtered.length === 0 ? (
+          ) : displayedTasks.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
-              <Icon name="SearchX" size={32} className="mx-auto mb-2 text-gray-300" />
-              <p className="text-sm">Задачи не найдены</p>
+              <Icon name={tab === "archive" ? "Archive" : "SearchX"} size={32} className="mx-auto mb-2 text-gray-300" />
+              <p className="text-sm">{tab === "archive" ? "Архив пуст" : "Задачи не найдены"}</p>
             </div>
           ) : (
-            filtered.map(task => {
+            displayedTasks.map(task => {
               const cfg = STATUS_CONFIG[task.status];
               const overdue = isOverdue(task.deadline, task.status);
               return (
@@ -687,8 +624,20 @@ export default function Index() {
                     <p className="text-[#1E3A5F] font-semibold text-sm leading-snug flex-1">{task.title}</p>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={`text-[11px] font-semibold px-2.5 py-1 rounded ${cfg.bg} ${cfg.color}`}>{task.status}</span>
+                      {isAdmin && tab === "active" && (
+                        <button
+                          onClick={e => { e.stopPropagation(); completeTask(task); }}
+                          className="text-gray-300 hover:text-[#145A32] transition-colors"
+                          title="Завершить"
+                        >
+                          <Icon name="CheckCircle2" size={16} />
+                        </button>
+                      )}
                       {isAdmin && (
-                        <button onClick={() => openEditTask(task)} className="text-gray-300 hover:text-[#1E3A5F] transition-colors">
+                        <button
+                          onClick={e => { e.stopPropagation(); openEditTask(task); }}
+                          className="text-gray-300 hover:text-[#1E3A5F] transition-colors"
+                        >
                           <Icon name="Pencil" size={15} />
                         </button>
                       )}
@@ -696,16 +645,11 @@ export default function Index() {
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-gray-500">
                     {task.assignee && (
-                      <span className="flex items-center gap-1">
-                        <Icon name="User" size={12} className="text-gray-400" />
-                        {task.assignee.name}
-                        <span className="font-mono text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded ml-1">{task.assignee.tag}</span>
-                      </span>
+                      <span className="font-mono text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded">{task.assignee.tag}</span>
                     )}
                     <span className={`flex items-center gap-1 font-mono ${overdue ? "text-[#7B241C] font-bold" : ""}`}>
                       <Icon name="Calendar" size={12} className="text-gray-400" />
-                      {formatDate(task.deadline)}
-                      {overdue && " ●"}
+                      {formatDate(task.deadline)}{overdue && " ●"}
                     </span>
                   </div>
                 </div>
@@ -715,44 +659,50 @@ export default function Index() {
         </div>
       </main>
 
-      {/* Task Modal — только для постановщика */}
-      {isAdmin && modalMode === "task" && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setModalMode(null)}>
+      {/* Task Modal */}
+      {isAdmin && taskModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setTaskModal(false)}>
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-sm font-bold text-[#1E3A5F] uppercase tracking-widest">
                 {editTask ? "Редактировать задачу" : "Новая задача"}
               </h2>
-              <button onClick={() => setModalMode(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <button onClick={() => setTaskModal(false)} className="text-gray-400 hover:text-gray-600">
                 <Icon name="X" size={18} />
               </button>
             </div>
-
             <div className="flex flex-col gap-4">
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Название задачи</label>
-                <input
-                  value={taskForm.title}
-                  onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Введите название..."
-                  className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                />
+                <div className="relative">
+                  <input
+                    value={taskForm.title}
+                    onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Введите название..."
+                    className="w-full border border-gray-300 rounded px-3 py-2.5 pr-10 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={listening ? stopVoice : startVoice}
+                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors ${listening ? "text-red-500 animate-pulse" : "text-gray-300 hover:text-[#1E3A5F]"}`}
+                    title="Голосовой ввод"
+                  >
+                    <Icon name="Mic" size={16} />
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Исполнитель</label>
                 <select
-                  value={String(taskForm.assignee_id)}
+                  value={taskForm.assignee_id}
                   onChange={e => setTaskForm(f => ({ ...f, assignee_id: e.target.value }))}
                   className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
                 >
                   <option value="">Не назначен</option>
                   {assignees.map(a => (
-                    <option key={a.id} value={String(a.id)}>{a.name} — {a.tag}</option>
+                    <option key={a.id} value={String(a.id)}>{a.name} — {a.telegram_username}</option>
                   ))}
                 </select>
-                {assignees.length === 0 && (
-                  <p className="text-[11px] text-gray-400 mt-1.5">Нет исполнителей — сначала зарегистрируйте их</p>
-                )}
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Срок выполнения</label>
@@ -770,32 +720,18 @@ export default function Index() {
                   onChange={e => setTaskForm(f => ({ ...f, status: e.target.value as Status }))}
                   className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
                 >
-                  {ALL_STATUSES.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Постановщик</label>
-                <select
-                  value={taskForm.setter}
-                  onChange={e => setTaskForm(f => ({ ...f, setter: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
-                >
-                  {ADMIN_EMAILS.map(e => <option key={e} value={e}>{e}</option>)}
+                  {ACTIVE_STATUSES.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
             </div>
-
             <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setModalMode(null)}
-                className="flex-1 border border-gray-300 text-gray-600 rounded py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors"
-              >
+              <button onClick={() => setTaskModal(false)} className="flex-1 border border-gray-300 text-gray-600 rounded py-2.5 text-sm font-semibold hover:bg-gray-50">
                 Отмена
               </button>
               <button
                 onClick={saveTask}
                 disabled={!taskForm.title.trim() || !taskForm.deadline || saving}
-                className="flex-1 bg-[#1E3A5F] text-white rounded py-2.5 text-sm font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 bg-[#1E3A5F] text-white rounded py-2.5 text-sm font-semibold hover:bg-[#16304F] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {saving ? "Сохранение..." : editTask ? "Сохранить" : "Создать"}
               </button>
@@ -804,117 +740,24 @@ export default function Index() {
         </div>
       )}
 
-      {/* Assignee Modal — только для постановщика */}
-      {isAdmin && modalMode === "assignee" && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { if (!newTag) setModalMode(null); }}>
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-[#1E3A5F] uppercase tracking-widest">Новый исполнитель</h2>
-              <button onClick={() => setModalMode(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                <Icon name="X" size={18} />
-              </button>
-            </div>
-
-            {newTag ? (
-              <div className="text-center py-4">
-                <div className="w-14 h-14 bg-[#E9F7EF] rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Icon name="CheckCircle2" size={28} className="text-[#145A32]" />
-                </div>
-                <p className="text-[#1E3A5F] font-semibold text-base mb-1">{assigneeForm.name}</p>
-                <p className="text-gray-500 text-sm mb-4">успешно зарегистрирован</p>
-                <div className="bg-[#D6EAF8] rounded-lg px-6 py-3 inline-block">
-                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Личный тег</p>
-                  <span className="font-mono text-[#1A5276] font-bold text-xl">{newTag}</span>
-                </div>
-                <p className="text-[11px] text-gray-400 mt-3">Используйте тег при назначении задач исполнителю</p>
-                <button
-                  onClick={() => setModalMode(null)}
-                  className="mt-5 w-full bg-[#1E3A5F] text-white rounded py-2.5 text-sm font-semibold hover:bg-[#16304F] transition-colors"
-                >
-                  Готово
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col gap-4">
-                  <div>
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Полное имя</label>
-                    <input
-                      value={assigneeForm.name}
-                      onChange={e => setAssigneeForm(f => ({ ...f, name: e.target.value }))}
-                      placeholder="Фамилия Имя Отчество"
-                      className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                      onKeyDown={e => { if (e.key === "Enter") saveAssignee(); }}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Telegram username</label>
-                    <input
-                      value={assigneeForm.telegram_username}
-                      onChange={e => setAssigneeForm(f => ({ ...f, telegram_username: e.target.value }))}
-                      placeholder="@username"
-                      className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Email</label>
-                    <input
-                      type="email"
-                      value={assigneeForm.email}
-                      onChange={e => setAssigneeForm(f => ({ ...f, email: e.target.value }))}
-                      placeholder="example@mail.ru"
-                      className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                    />
-                  </div>
-                  <div className="bg-[#F4F6F9] rounded p-3 text-[11px] text-gray-500 flex items-start gap-2">
-                    <Icon name="Info" size={13} className="text-gray-400 mt-0.5 shrink-0" />
-                    <span>Тег генерируется автоматически. Укажи Telegram — исполнитель будет получать уведомления о задачах в личку</span>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => setModalMode(null)}
-                    className="flex-1 border border-gray-300 text-gray-600 rounded py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors"
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    onClick={saveAssignee}
-                    disabled={!assigneeForm.name.trim() || saving}
-                    className="flex-1 bg-[#1E3A5F] text-white rounded py-2.5 text-sm font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {saving ? "Создание..." : "Зарегистрировать"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Модалка просмотра задачи + комментарии */}
+      {/* View Task + Comments */}
       {viewTask && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setViewTask(null)}>
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] animate-fade-in" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100">
               <h2 className="text-sm font-bold text-[#1E3A5F] uppercase tracking-widest">Задача</h2>
-              <button onClick={() => setViewTask(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <button onClick={() => setViewTask(null)} className="text-gray-400 hover:text-gray-600">
                 <Icon name="X" size={18} />
               </button>
             </div>
             <div className="px-6 py-4 border-b border-gray-100">
               <p className="text-[#1E3A5F] font-semibold text-base mb-3">{viewTask.title}</p>
-              <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+              <div className="flex flex-wrap gap-3 text-xs">
                 {viewTask.assignee && (
-                  <span className="flex items-center gap-1">
-                    <Icon name="User" size={12} className="text-gray-400" />
-                    {viewTask.assignee.name}
-                    <span className="font-mono text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded ml-1">{viewTask.assignee.tag}</span>
-                  </span>
+                  <span className="font-mono text-[#1A5276] bg-[#D6EAF8] px-2 py-0.5 rounded">{viewTask.assignee.tag}</span>
                 )}
-                <span className={`flex items-center gap-1 font-mono ${isOverdue(viewTask.deadline, viewTask.status) ? "text-[#7B241C] font-bold" : ""}`}>
-                  <Icon name="Calendar" size={12} className="text-gray-400" />
+                <span className={`flex items-center gap-1 font-mono ${isOverdue(viewTask.deadline, viewTask.status) ? "text-[#7B241C] font-bold" : "text-gray-600"}`}>
+                  <Icon name="Calendar" size={12} />
                   {formatDate(viewTask.deadline)}
                 </span>
                 <span className={`px-2 py-0.5 rounded font-semibold ${STATUS_CONFIG[viewTask.status].bg} ${STATUS_CONFIG[viewTask.status].color}`}>
@@ -935,14 +778,16 @@ export default function Index() {
                   <div key={c.id} className="bg-[#F4F6F9] rounded-lg px-3 py-2.5">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-mono text-[10px] text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded">{c.assignee.tag}</span>
-                      <span className="text-[10px] text-gray-400">{new Date(c.created_at).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                      <span className="text-[10px] text-gray-400">
+                        {new Date(c.created_at).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
                     </div>
                     <p className="text-sm text-[#1E3A5F]">{c.text}</p>
                   </div>
                 ))
               )}
             </div>
-            {typeof currentUser !== "string" && currentUser && viewTask.assignee?.id === currentUser.id && (
+            {currentUser.role === "executor" && viewTask.assignee?.id === currentUser.assignee?.id && (
               <div className="px-6 pb-5 pt-3 border-t border-gray-100">
                 <div className="flex gap-2 items-end">
                   <div className="flex-1">
@@ -958,7 +803,7 @@ export default function Index() {
                   <button
                     onClick={submitComment}
                     disabled={!commentText.trim() || commentSaving}
-                    className="mb-5 bg-[#1E3A5F] text-white rounded-lg px-3 py-2.5 hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="mb-5 bg-[#1E3A5F] text-white rounded-lg px-3 py-2.5 hover:bg-[#16304F] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Icon name="Send" size={16} />
                   </button>

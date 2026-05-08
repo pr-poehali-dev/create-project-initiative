@@ -1,13 +1,11 @@
 {
   "tests": [
-
     {
       "name": "GET tasks list",
       "method": "GET",
       "path": "/",
       "expectedStatus": 200,
-      "expectedBody": [],
-      "bodyMatcher": "partial"
+      "bodyMatcher": "none"
     }
   ]
 }
