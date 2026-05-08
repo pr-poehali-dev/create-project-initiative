@@ -175,6 +175,12 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'no fields to update'})}
 
+        # Запомним старого исполнителя до обновления
+        cur.execute("SELECT assignee_id FROM tasks WHERE id = %s", (task_id,))
+        old_row = cur.fetchone()
+        old_assignee_id = old_row[0] if old_row else None
+        new_assignee_id = body.get('assignee_id') or None
+
         values.append(task_id)
         cur.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = %s", values)
         conn.commit()
@@ -187,7 +193,9 @@ def handler(event: dict, context) -> dict:
         """, (task_id,))
         r = cur.fetchone()
 
-        if r[5] and r[3] != 'Выполнена':
+        # Уведомляем только если исполнитель изменился (новое назначение)
+        assignee_changed = 'assignee_id' in body and str(new_assignee_id) != str(old_assignee_id)
+        if r[5] and assignee_changed and r[3] != 'Выполнена':
             notify_assignee(cur, r[5], r[1], fmt_deadline(r[2]), r[3], setter_tg)
 
         conn.close()

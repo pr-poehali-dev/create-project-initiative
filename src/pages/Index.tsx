@@ -139,7 +139,90 @@ function LoginScreen({ onEnter }: LoginScreenProps) {
 
 // ─── Голосовой ввод ───────────────────────────────────────────────────────────
 
-function useVoiceInput(onResult: (text: string) => void) {
+interface VoiceParsed {
+  title: string;
+  status?: Status;
+  deadline?: string;
+}
+
+function parseVoiceText(raw: string): VoiceParsed {
+  let text = raw.trim();
+
+  // Парсим статус
+  const statusMap: { pattern: RegExp; value: Status }[] = [
+    { pattern: /\b(в работе|в работу|берём в работу|начали|начинаем)\b/i, value: "В работе" },
+    { pattern: /\b(на проверке|проверка|на проверку|проверить)\b/i, value: "На проверке" },
+    { pattern: /\b(выполнена|выполнено|готово|завершена|сделано)\b/i, value: "Выполнена" },
+    { pattern: /\b(просрочена|просрочено|просрочена)\b/i, value: "Просрочена" },
+    { pattern: /\b(новая|новая задача)\b/i, value: "Новая" },
+  ];
+  let foundStatus: Status | undefined;
+  for (const s of statusMap) {
+    if (s.pattern.test(text)) {
+      foundStatus = s.value;
+      text = text.replace(s.pattern, "").trim();
+      break;
+    }
+  }
+
+  // Парсим дату
+  const today = new Date();
+  let foundDeadline: string | undefined;
+
+  // "сегодня"
+  if (/\bсегодня\b/i.test(text)) {
+    foundDeadline = today.toISOString().slice(0, 10);
+    text = text.replace(/\bсегодня\b/i, "").trim();
+  }
+  // "завтра"
+  else if (/\bзавтра\b/i.test(text)) {
+    const d = new Date(today); d.setDate(d.getDate() + 1);
+    foundDeadline = d.toISOString().slice(0, 10);
+    text = text.replace(/\bзавтра\b/i, "").trim();
+  }
+  // "послезавтра"
+  else if (/\bпослезавтра\b/i.test(text)) {
+    const d = new Date(today); d.setDate(d.getDate() + 2);
+    foundDeadline = d.toISOString().slice(0, 10);
+    text = text.replace(/\bпослезавтра\b/i, "").trim();
+  }
+  // "через N дней/день"
+  else {
+    const m = text.match(/через\s+(\d+|один|два|три|четыре|пять|шесть|семь|восемь|девять|десять)\s+(день|дня|дней)/i);
+    if (m) {
+      const numMap: Record<string, number> = { один: 1, два: 2, три: 3, четыре: 4, пять: 5, шесть: 6, семь: 7, восемь: 8, девять: 9, десять: 10 };
+      const n = isNaN(Number(m[1])) ? (numMap[m[1].toLowerCase()] ?? 1) : Number(m[1]);
+      const d = new Date(today); d.setDate(d.getDate() + n);
+      foundDeadline = d.toISOString().slice(0, 10);
+      text = text.replace(m[0], "").trim();
+    }
+    // "до DD.MM" или "до DD месяц"
+    else {
+      const monthMap: Record<string, number> = {
+        января: 0, февраля: 1, марта: 2, апреля: 3, мая: 4, июня: 5,
+        июля: 6, августа: 7, сентября: 8, октября: 9, ноября: 10, декабря: 11,
+      };
+      const mDate = text.match(/(?:до|к|на|срок)\s+(\d{1,2})(?:\.(\d{1,2})|\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
+      if (mDate) {
+        const day = parseInt(mDate[1]);
+        const month = mDate[2] ? parseInt(mDate[2]) - 1 : monthMap[mDate[3].toLowerCase()];
+        const year = today.getFullYear();
+        const d = new Date(year, month, day);
+        if (d < today) d.setFullYear(year + 1);
+        foundDeadline = d.toISOString().slice(0, 10);
+        text = text.replace(mDate[0], "").trim();
+      }
+    }
+  }
+
+  // Чистим лишние слова-связки в начале/конце
+  text = text.replace(/^(задача|задачу|задание|поставь|создай|добавь|нужно|надо)[:\s]*/i, "").trim();
+  text = text.replace(/[,\s]+$/, "").trim();
+
+  return { title: text || raw.trim(), status: foundStatus, deadline: foundDeadline };
+}
+
+function useVoiceInput(onResult: (parsed: VoiceParsed) => void) {
   const [listening, setListening] = useState(false);
   const recRef = useRef<SpeechRecognition | null>(null);
 
@@ -152,7 +235,7 @@ function useVoiceInput(onResult: (text: string) => void) {
     rec.maxAlternatives = 1;
     rec.onresult = (e: SpeechRecognitionEvent) => {
       const text = e.results[0][0].transcript;
-      onResult(text);
+      onResult(parseVoiceText(text));
     };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
@@ -199,8 +282,13 @@ export default function Index() {
   const isAdmin = currentUser?.role === "setter";
 
   // Voice input
-  const { listening, start: startVoice, stop: stopVoice } = useVoiceInput((text) => {
-    setTaskForm(f => ({ ...f, title: text }));
+  const { listening, start: startVoice, stop: stopVoice } = useVoiceInput((parsed) => {
+    setTaskForm(f => ({
+      ...f,
+      title: parsed.title,
+      ...(parsed.status ? { status: parsed.status } : {}),
+      ...(parsed.deadline ? { deadline: parsed.deadline } : {}),
+    }));
     if (!taskModal) setTaskModal(true);
   });
 
