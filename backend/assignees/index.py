@@ -64,11 +64,11 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': str(e)})}
 
-    # GET /assignees — только исполнители (не постановщики)
+    # GET /assignees — только исполнители с telegram_username (зарегистрированные)
     if method == 'GET' and not params.get('action'):
         cur.execute(
             "SELECT id, name, telegram_username, telegram_chat_id FROM assignees "
-            "WHERE is_setter = FALSE ORDER BY name"
+            "WHERE is_setter = FALSE AND telegram_username IS NOT NULL ORDER BY name"
         )
         rows = cur.fetchall()
         data = [{'id': r[0], 'name': r[1], 'telegram_username': r[2], 'telegram_chat_id': r[3]} for r in rows]
