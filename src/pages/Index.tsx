@@ -1,22 +1,16 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
+import LoginScreen, { Assignee } from "@/components/journal/LoginScreen";
+import AppHeader from "@/components/journal/AppHeader";
+import TaskModal, { TaskForm } from "@/components/journal/TaskModal";
+import ViewTaskModal, { Comment, ViewTask } from "@/components/journal/ViewTaskModal";
 
 const API_ASSIGNEES = "https://functions.poehali.dev/defb4901-3a86-4c40-923f-96cdf4be23ac";
 const API_TASKS = "https://functions.poehali.dev/53d318bd-f60a-459d-b3d4-4a534d7989b4";
 const LS_KEY = "journal_user_v2";
 
-// Постановщики (по TG username lowercase)
-const SETTER_TGS = ["vyacheslav_dof", "big_nick87"];
-
 type Status = "Новая" | "В работе" | "На проверке" | "Выполнена" | "Просрочена";
 type Tab = "active" | "archive";
-
-interface Assignee {
-  id: number;
-  name: string;
-  telegram_username: string;
-  telegram_chat_id?: number | null;
-}
 
 interface Task {
   id: number;
@@ -24,14 +18,6 @@ interface Task {
   deadline: string;
   status: Status;
   assignee: { id: number; name: string; tag: string } | null;
-}
-
-interface Comment {
-  id: number;
-  task_id: number;
-  text: string;
-  created_at: string;
-  assignee: { id: number; name: string; tag: string };
 }
 
 const STATUS_CONFIG: Record<Status, { color: string; bg: string }> = {
@@ -55,88 +41,6 @@ function isOverdue(deadline: string, status: Status) {
   return new Date(deadline) < new Date();
 }
 
-// ─── Экран входа ──────────────────────────────────────────────────────────────
-
-interface LoginScreenProps {
-  onEnter: (user: { role: "setter" | "executor"; tg: string; assignee?: Assignee }) => void;
-}
-
-function LoginScreen({ onEnter }: LoginScreenProps) {
-  const [tg, setTg] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleLogin() {
-    const clean = tg.trim().lstrip?.("@") ?? tg.trim().replace(/^@/, "");
-    if (!clean) return;
-    setLoading(true);
-    setError("");
-    const res = await fetch(`${API_ASSIGNEES}?action=login&tg=@${clean}`);
-    const data = await res.json();
-    setLoading(false);
-    if (res.status === 403 || data.error === "not_allowed") {
-      setError("Тебя нет в списке пользователей системы.");
-      return;
-    }
-    if (!res.ok) {
-      setError("Ошибка входа. Попробуй ещё раз.");
-      return;
-    }
-    if (data.role === "setter") {
-      onEnter({ role: "setter", tg: clean });
-    } else {
-      onEnter({ role: "executor", tg: clean, assignee: data });
-    }
-  }
-
-  return (
-    <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-10 h-10 bg-[#1E3A5F] rounded-lg flex items-center justify-center">
-            <Icon name="ClipboardList" size={22} className="text-white" />
-          </div>
-          <div>
-            <p className="text-[#1E3A5F] font-bold text-base leading-tight">Журнал задач</p>
-            <p className="text-gray-400 text-xs">ДОС Фонд</p>
-          </div>
-        </div>
-
-        <h2 className="text-[#1E3A5F] font-bold text-xl mb-1">Вход</h2>
-        <p className="text-gray-500 text-sm mb-6">Введи свой Telegram username</p>
-
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Telegram username</label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm">@</span>
-              <input
-                value={tg.replace(/^@/, "")}
-                onChange={e => setTg(e.target.value.replace(/^@/, ""))}
-                onKeyDown={e => { if (e.key === "Enter") handleLogin(); }}
-                placeholder="username"
-                className="w-full border border-gray-300 rounded-lg pl-8 pr-3.5 py-3 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-              />
-            </div>
-          </div>
-          {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2">{error}</p>}
-          <button
-            onClick={handleLogin}
-            disabled={!tg.replace(/^@/, "").trim() || loading}
-            className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {loading ? "Проверяем..." : "Войти"}
-          </button>
-          <div className="bg-[#F4F6F9] rounded-lg px-4 py-3 text-[11px] text-gray-500 flex items-start gap-2">
-            <Icon name="Info" size={13} className="text-gray-400 shrink-0 mt-0.5" />
-            <span>Доступ только для сотрудников ДОС Фонда. Используй свой Telegram username без @.</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Голосовой ввод ───────────────────────────────────────────────────────────
 
 interface VoiceParsed {
@@ -149,7 +53,6 @@ interface VoiceParsed {
 function parseVoiceText(raw: string, assignees: { id: number; name: string; telegram_username: string }[] = []): VoiceParsed {
   let text = raw.trim();
 
-  // Парсим статус
   const statusMap: { pattern: RegExp; value: Status }[] = [
     { pattern: /\b(в работе|в работу|берём в работу|начали|начинаем)\b/i, value: "В работе" },
     { pattern: /\b(на проверке|проверка|на проверку|проверить)\b/i, value: "На проверке" },
@@ -166,29 +69,21 @@ function parseVoiceText(raw: string, assignees: { id: number; name: string; tele
     }
   }
 
-  // Парсим дату
   const today = new Date();
   let foundDeadline: string | undefined;
 
-  // "сегодня"
   if (/\bсегодня\b/i.test(text)) {
     foundDeadline = today.toISOString().slice(0, 10);
     text = text.replace(/\bсегодня\b/i, "").trim();
-  }
-  // "завтра"
-  else if (/\bзавтра\b/i.test(text)) {
+  } else if (/\bзавтра\b/i.test(text)) {
     const d = new Date(today); d.setDate(d.getDate() + 1);
     foundDeadline = d.toISOString().slice(0, 10);
     text = text.replace(/\bзавтра\b/i, "").trim();
-  }
-  // "послезавтра"
-  else if (/\bпослезавтра\b/i.test(text)) {
+  } else if (/\bпослезавтра\b/i.test(text)) {
     const d = new Date(today); d.setDate(d.getDate() + 2);
     foundDeadline = d.toISOString().slice(0, 10);
     text = text.replace(/\bпослезавтра\b/i, "").trim();
-  }
-  // "через N дней/день"
-  else {
+  } else {
     const m = text.match(/через\s+(\d+|один|два|три|четыре|пять|шесть|семь|восемь|девять|десять)\s+(день|дня|дней)/i);
     if (m) {
       const numMap: Record<string, number> = { один: 1, два: 2, три: 3, четыре: 4, пять: 5, шесть: 6, семь: 7, восемь: 8, девять: 9, десять: 10 };
@@ -196,9 +91,7 @@ function parseVoiceText(raw: string, assignees: { id: number; name: string; tele
       const d = new Date(today); d.setDate(d.getDate() + n);
       foundDeadline = d.toISOString().slice(0, 10);
       text = text.replace(m[0], "").trim();
-    }
-    // "до DD.MM" или "до DD месяц"
-    else {
+    } else {
       const monthMap: Record<string, number> = {
         января: 0, февраля: 1, марта: 2, апреля: 3, мая: 4, июня: 5,
         июля: 6, августа: 7, сентября: 8, октября: 9, ноября: 10, декабря: 11,
@@ -216,20 +109,16 @@ function parseVoiceText(raw: string, assignees: { id: number; name: string; tele
     }
   }
 
-  // Парсим исполнителя по имени (ищем в списке)
   let foundAssigneeId: string | undefined;
   if (assignees.length > 0) {
-    // Строим токены для сравнения: имя целиком и отдельные слова имени
     const lower = text.toLowerCase();
     let bestMatch: { id: number; score: number } | null = null;
     for (const a of assignees) {
       const nameParts = a.name.toLowerCase().split(/\s+/);
       let score = 0;
-      // Проверяем каждое слово имени — встречается ли в тексте
       for (const part of nameParts) {
         if (part.length >= 3 && lower.includes(part)) score++;
       }
-      // Проверяем полное имя целиком
       if (lower.includes(a.name.toLowerCase())) score += 5;
       if (score > 0 && (!bestMatch || score > bestMatch.score)) {
         bestMatch = { id: a.id, score };
@@ -237,7 +126,6 @@ function parseVoiceText(raw: string, assignees: { id: number; name: string; tele
     }
     if (bestMatch) {
       foundAssigneeId = String(bestMatch.id);
-      // Убираем имя исполнителя из текста
       const matched = assignees.find(a => a.id === bestMatch!.id)!;
       for (const part of matched.name.split(/\s+/)) {
         if (part.length >= 3) {
@@ -245,7 +133,6 @@ function parseVoiceText(raw: string, assignees: { id: number; name: string; tele
         }
       }
     }
-    // Также ищем паттерн "для/исполнитель/назначь X"
     const forMatch = text.match(/(?:для|назначь|исполнитель|ответственный)[:\s]+([а-яё\s]+?)(?:\s+(?:до|к|на|через|сегодня|завтра|срок)|$)/i);
     if (forMatch && !foundAssigneeId) {
       const candidate = forMatch[1].trim().toLowerCase();
@@ -260,7 +147,6 @@ function parseVoiceText(raw: string, assignees: { id: number; name: string; tele
     }
   }
 
-  // Чистим лишние слова-связки в начале/конце
   text = text.replace(/^(задача|задачу|задание|поставь|создай|добавь|нужно|надо)[:\s]*/i, "").trim();
   text = text.replace(/[,\s]+$/, "").trim();
 
@@ -313,14 +199,12 @@ export default function Index() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterDeadline, setFilterDeadline] = useState<"all" | "today" | "week" | "overdue">("all");
 
-  // Task modal
   const [taskModal, setTaskModal] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", assignee_id: "", deadline: "", status: "Новая" as Status });
+  const [taskForm, setTaskForm] = useState<TaskForm>({ title: "", assignee_id: "", deadline: "", status: "Новая" });
   const [saving, setSaving] = useState(false);
 
-  // View task + comments
-  const [viewTask, setViewTask] = useState<Task | null>(null);
+  const [viewTask, setViewTask] = useState<ViewTask | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentText, setCommentText] = useState("");
@@ -328,7 +212,6 @@ export default function Index() {
 
   const isAdmin = currentUser?.role === "setter";
 
-  // Voice input
   const { listening, start: startVoice, stop: stopVoice } = useVoiceInput((parsed) => {
     setTaskForm(f => ({
       ...f,
@@ -340,7 +223,6 @@ export default function Index() {
     if (!taskModal) setTaskModal(true);
   }, assignees);
 
-  // Restore session
   useEffect(() => {
     const saved = localStorage.getItem(LS_KEY);
     if (saved) {
@@ -351,7 +233,6 @@ export default function Index() {
     }
   }, []);
 
-  // Load data
   useEffect(() => {
     if (!currentUser) return;
     setLoading(true);
@@ -367,7 +248,6 @@ export default function Index() {
     }).catch(() => setLoading(false));
   }, [currentUser]);
 
-  // Auto-filter for executor
   useEffect(() => {
     if (currentUser?.role === "executor" && currentUser.assignee) {
       setFilterAssignee(String(currentUser.assignee.id));
@@ -442,7 +322,6 @@ export default function Index() {
       const res = await fetch(API_TASKS, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const raw = await res.json();
       const updated: Task = typeof raw === "string" ? JSON.parse(raw) : raw;
-      // Если статус стал Выполнена — переносим в архив
       if (updated.status === "Выполнена") {
         setTasks(ts => ts.filter(t => t.id !== editTask.id));
         setArchivedTasks(ar => [updated, ...ar.filter(t => t.id !== updated.id)]);
@@ -513,68 +392,15 @@ export default function Index() {
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] font-sans">
-      {/* Header */}
-      <header className="bg-[#1E3A5F] text-white px-4 md:px-8 py-4 shadow-lg">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-white/15 rounded flex items-center justify-center shrink-0">
-              <Icon name="ClipboardList" size={18} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-base font-semibold leading-tight">Журнал задач</h1>
-              <p className="text-white/50 text-[11px] leading-tight">ДОС Фонд</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-white/10 border border-white/20 px-2.5 py-1.5 rounded">
-              <Icon name="Send" size={12} className="text-white/60" />
-              <span className="text-white/80 font-mono text-xs">@{currentUser.tg}</span>
-            </div>
-            {isAdmin && (
-              <>
-                {/* Голосовой ввод */}
-                <button
-                  onClick={listening ? stopVoice : startVoice}
-                  title="Голосовой ввод задачи"
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded transition-colors ${listening ? "bg-red-500 text-white animate-pulse" : "bg-white/10 border border-white/20 text-white hover:bg-white/20"}`}
-                >
-                  <Icon name="Mic" size={14} />
-                  <span className="hidden sm:inline">{listening ? "Говорите..." : "Голос"}</span>
-                </button>
-                <button
-                  onClick={openAddTask}
-                  className="flex items-center gap-1.5 bg-white text-[#1E3A5F] px-2.5 py-1.5 text-xs font-semibold rounded hover:bg-[#E8EFF7] transition-colors"
-                >
-                  <Icon name="Plus" size={14} />
-                  <span className="hidden sm:inline">Добавить задачу</span>
-                </button>
-              </>
-            )}
-            <button onClick={handleLogout} className="text-white/50 hover:text-white transition-colors p-1" title="Выйти">
-              <Icon name="LogOut" size={16} />
-            </button>
-          </div>
-        </div>
-        {/* Мобильные кнопки */}
-        {isAdmin && (
-          <div className="flex sm:hidden gap-2 mt-3">
-            <button
-              onClick={listening ? stopVoice : startVoice}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded transition-colors ${listening ? "bg-red-500 text-white animate-pulse" : "bg-white/10 border border-white/20 text-white hover:bg-white/20"}`}
-            >
-              <Icon name="Mic" size={14} />
-              {listening ? "Говорите..." : "Голосовой ввод"}
-            </button>
-            <button
-              onClick={openAddTask}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-white text-[#1E3A5F] py-2 text-xs font-semibold rounded hover:bg-[#E8EFF7] transition-colors"
-            >
-              <Icon name="Plus" size={14} />
-              Добавить задачу
-            </button>
-          </div>
-        )}
-      </header>
+      <AppHeader
+        currentUser={currentUser}
+        isAdmin={isAdmin}
+        listening={listening}
+        onStartVoice={startVoice}
+        onStopVoice={stopVoice}
+        onAddTask={openAddTask}
+        onLogout={handleLogout}
+      />
 
       <main className="px-4 md:px-8 py-4 md:py-6 max-w-7xl mx-auto">
 
@@ -815,159 +641,33 @@ export default function Index() {
         </div>
       </main>
 
-      {/* Task Modal */}
       {isAdmin && taskModal && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setTaskModal(false)}>
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-[#1E3A5F] uppercase tracking-widest">
-                {editTask ? "Редактировать задачу" : "Новая задача"}
-              </h2>
-              <button onClick={() => setTaskModal(false)} className="text-gray-400 hover:text-gray-600">
-                <Icon name="X" size={18} />
-              </button>
-            </div>
-            <div className="flex flex-col gap-4">
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Название задачи</label>
-                <div className="relative">
-                  <input
-                    value={taskForm.title}
-                    onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
-                    placeholder="Введите название..."
-                    className="w-full border border-gray-300 rounded px-3 py-2.5 pr-10 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                  />
-                  <button
-                    type="button"
-                    onClick={listening ? stopVoice : startVoice}
-                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors ${listening ? "text-red-500 animate-pulse" : "text-gray-300 hover:text-[#1E3A5F]"}`}
-                    title="Голосовой ввод"
-                  >
-                    <Icon name="Mic" size={16} />
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Исполнитель</label>
-                <select
-                  value={taskForm.assignee_id}
-                  onChange={e => setTaskForm(f => ({ ...f, assignee_id: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
-                >
-                  <option value="">Не назначен</option>
-                  {assignees.map(a => (
-                    <option key={a.id} value={String(a.id)}>{a.name} — {a.telegram_username}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Срок выполнения</label>
-                <input
-                  type="date"
-                  value={taskForm.deadline}
-                  onChange={e => setTaskForm(f => ({ ...f, deadline: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F]"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Статус</label>
-                <select
-                  value={taskForm.status}
-                  onChange={e => setTaskForm(f => ({ ...f, status: e.target.value as Status }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2.5 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F]"
-                >
-                  {ACTIVE_STATUSES.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setTaskModal(false)} className="flex-1 border border-gray-300 text-gray-600 rounded py-2.5 text-sm font-semibold hover:bg-gray-50">
-                Отмена
-              </button>
-              <button
-                onClick={saveTask}
-                disabled={!taskForm.title.trim() || !taskForm.deadline || saving}
-                className="flex-1 bg-[#1E3A5F] text-white rounded py-2.5 text-sm font-semibold hover:bg-[#16304F] disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {saving ? "Сохранение..." : editTask ? "Сохранить" : "Создать"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <TaskModal
+          editTask={editTask}
+          taskForm={taskForm}
+          setTaskForm={setTaskForm}
+          assignees={assignees}
+          saving={saving}
+          listening={listening}
+          onStartVoice={startVoice}
+          onStopVoice={stopVoice}
+          onSave={saveTask}
+          onClose={() => setTaskModal(false)}
+        />
       )}
 
-      {/* View Task + Comments */}
       {viewTask && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setViewTask(null)}>
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100">
-              <h2 className="text-sm font-bold text-[#1E3A5F] uppercase tracking-widest">Задача</h2>
-              <button onClick={() => setViewTask(null)} className="text-gray-400 hover:text-gray-600">
-                <Icon name="X" size={18} />
-              </button>
-            </div>
-            <div className="px-6 py-4 border-b border-gray-100">
-              <p className="text-[#1E3A5F] font-semibold text-base mb-3">{viewTask.title}</p>
-              <div className="flex flex-wrap gap-3 text-xs">
-                {viewTask.assignee && (
-                  <span className="font-mono text-[#1A5276] bg-[#D6EAF8] px-2 py-0.5 rounded">{viewTask.assignee.tag}</span>
-                )}
-                <span className={`flex items-center gap-1 font-mono ${isOverdue(viewTask.deadline, viewTask.status) ? "text-[#7B241C] font-bold" : "text-gray-600"}`}>
-                  <Icon name="Calendar" size={12} />
-                  {formatDate(viewTask.deadline)}
-                </span>
-                <span className={`px-2 py-0.5 rounded font-semibold ${STATUS_CONFIG[viewTask.status].bg} ${STATUS_CONFIG[viewTask.status].color}`}>
-                  {viewTask.status}
-                </span>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-2 min-h-[80px]">
-              {commentsLoading ? (
-                <div className="flex items-center justify-center py-6 text-gray-400">
-                  <Icon name="Loader2" size={20} className="animate-spin mr-2" />
-                  <span className="text-sm">Загрузка...</span>
-                </div>
-              ) : comments.length === 0 ? (
-                <p className="text-gray-400 text-xs text-center py-4">Комментариев пока нет</p>
-              ) : (
-                comments.map(c => (
-                  <div key={c.id} className="bg-[#F4F6F9] rounded-lg px-3 py-2.5">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-mono text-[10px] text-[#1A5276] bg-[#D6EAF8] px-1.5 py-0.5 rounded">{c.assignee.tag}</span>
-                      <span className="text-[10px] text-gray-400">
-                        {new Date(c.created_at).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    </div>
-                    <p className="text-sm text-[#1E3A5F]">{c.text}</p>
-                  </div>
-                ))
-              )}
-            </div>
-            {currentUser.role === "executor" && viewTask.assignee?.id === currentUser.assignee?.id && (
-              <div className="px-6 pb-5 pt-3 border-t border-gray-100">
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1">
-                    <input
-                      value={commentText}
-                      onChange={e => setCommentText(e.target.value.slice(0, 100))}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(); } }}
-                      placeholder="Написать комментарий..."
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-                    />
-                    <p className="text-[10px] text-gray-400 mt-1 text-right">{commentText.length}/100</p>
-                  </div>
-                  <button
-                    onClick={submitComment}
-                    disabled={!commentText.trim() || commentSaving}
-                    className="mb-5 bg-[#1E3A5F] text-white rounded-lg px-3 py-2.5 hover:bg-[#16304F] disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Icon name="Send" size={16} />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <ViewTaskModal
+          viewTask={viewTask}
+          currentUser={currentUser}
+          comments={comments}
+          commentsLoading={commentsLoading}
+          commentText={commentText}
+          commentSaving={commentSaving}
+          setCommentText={setCommentText}
+          onSubmitComment={submitComment}
+          onClose={() => setViewTask(null)}
+        />
       )}
     </div>
   );
