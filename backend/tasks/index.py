@@ -8,8 +8,13 @@ def get_conn():
 
 def send_telegram(chat_id: int, text: str):
     """Отправляет сообщение в Telegram по числовому chat_id."""
+    import sys
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    if not token or not chat_id:
+    if not token:
+        print(f"[TG] ERROR: TELEGRAM_BOT_TOKEN not set", file=sys.stderr)
+        return
+    if not chat_id:
+        print(f"[TG] ERROR: chat_id is empty", file=sys.stderr)
         return
     payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
     req = urllib.request.Request(
@@ -19,19 +24,26 @@ def send_telegram(chat_id: int, text: str):
         method="POST"
     )
     try:
-        urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
+        resp = urllib.request.urlopen(req, timeout=10)
+        print(f"[TG] sent to chat_id={chat_id}, status={resp.status}", file=sys.stderr)
+    except Exception as e:
+        print(f"[TG] ERROR sending to chat_id={chat_id}: {e}", file=sys.stderr)
 
 def notify_assignee(cur, assignee_id, task_title: str, deadline: str, status: str, setter_tg: str):
     """Отправляет уведомление исполнителю если у него есть telegram_chat_id."""
+    import sys
     if not assignee_id:
+        print(f"[TG] notify_assignee: assignee_id is empty", file=sys.stderr)
         return
-    cur.execute("SELECT name, telegram_chat_id FROM assignees WHERE id = %s", (assignee_id,))
+    cur.execute("SELECT name, telegram_chat_id, telegram_username FROM assignees WHERE id = %s", (assignee_id,))
     row = cur.fetchone()
-    if not row or not row[1]:
+    if not row:
+        print(f"[TG] notify_assignee: assignee id={assignee_id} not found", file=sys.stderr)
         return
-    name, chat_id = row
+    name, chat_id, tg_username = row
+    if not chat_id:
+        print(f"[TG] notify_assignee: {name} ({tg_username}) has no telegram_chat_id — они не писали боту /start", file=sys.stderr)
+        return
     text = (
         f"\U0001f4cb *Новая задача*\n\n"
         f"*{task_title}*\n\n"
@@ -39,6 +51,7 @@ def notify_assignee(cur, assignee_id, task_title: str, deadline: str, status: st
         f"\U0001f516 Статус: {status}\n"
         f"\U0001f464 Постановщик: @{setter_tg}"
     )
+    print(f"[TG] notify_assignee: sending to {name} (chat_id={chat_id})", file=sys.stderr)
     send_telegram(chat_id, text)
 
 def fmt_deadline(d):
