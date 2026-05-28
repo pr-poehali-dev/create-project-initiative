@@ -224,12 +224,30 @@ export default function Index() {
   }, assignees);
 
   useEffect(() => {
+    // Сначала пробуем сессию из LS_KEY
     const saved = localStorage.getItem(LS_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed?.role) setCurrentUser(parsed);
+        if (parsed?.role) { setCurrentUser(parsed); return; }
       } catch { /* ignore */ }
+    }
+    // Иначе — автовход по сохранённым email+pwd
+    const savedEmail = localStorage.getItem("journal_saved_email");
+    const savedPwd = localStorage.getItem("journal_saved_pwd");
+    if (savedEmail && savedPwd) {
+      fetch(`${API_ASSIGNEES}?action=login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: savedEmail, password: savedPwd }),
+      }).then(r => r.json()).then(data => {
+        if (data.role) {
+          const user: CurrentUser = data.role === "setter"
+            ? { role: "setter", id: data.id, name: data.name, email: data.email }
+            : { role: "executor", id: data.id, name: data.name, email: data.email, assignee: { id: data.id, name: data.name, email: data.email } };
+          setCurrentUser(user);
+        }
+      }).catch(() => {});
     }
   }, []);
 

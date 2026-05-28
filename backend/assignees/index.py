@@ -1,12 +1,13 @@
 import json
 import os
 import psycopg2
+import bcrypt
 
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 def handler(event: dict, context) -> dict:
-    """Управление исполнителями: вход по email, список исполнителей."""
+    """Управление исполнителями: вход по email+пароль, установка пароля, список."""
     cors = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -33,16 +34,19 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps(data, ensure_ascii=False)}
 
-    # GET ?action=login&email=... — вход по email
-    if method == 'GET' and params.get('action') == 'login':
-        email_raw = (params.get('email') or '').strip().lower()
-        if not email_raw:
+    # POST ?action=login — вход по email + пароль
+    if method == 'POST' and params.get('action') == 'login':
+        body = json.loads(event.get('body') or '{}')
+        email_raw = (body.get('email') or '').strip().lower()
+        password = (body.get('password') or '').strip()
+
+        if not email_raw or not password:
             conn.close()
-            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'email required'})}
+            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'email and password required'})}
 
         cur.execute(
-            "SELECT id, name, email, is_setter FROM assignees "
-            "WHERE LOWER(email) = %s ORDER BY id LIMIT 1",
+            "SELECT id, name, email, is_setter, password_hash FROM assignees "
+            "WHERE LOWER(email) = %s AND email IS NOT NULL ORDER BY id DESC LIMIT 1",
             (email_raw,)
         )
         row = cur.fetchone()
@@ -51,15 +55,59 @@ def handler(event: dict, context) -> dict:
         if not row:
             return {'statusCode': 403, 'headers': cors, 'body': json.dumps({'error': 'not_allowed'})}
 
-        assignee_id, name, email, is_setter = row
-        if is_setter:
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({
-                'role': 'setter', 'id': assignee_id, 'name': name, 'email': email
-            })}
-        else:
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({
-                'role': 'executor', 'id': assignee_id, 'name': name, 'email': email
-            })}
+        assignee_id, name, email, is_setter, password_hash = row
+
+        if not password_hash:
+            return {'statusCode': 403, 'headers': cors, 'body': json.dumps({'error': 'no_password'})}
+
+        if not bcrypt.checkpw(password.encode(), password_hash.encode()):
+            return {'statusCode': 403, 'headers': cors, 'body': json.dumps({'error': 'wrong_password'})}
+
+        role = 'setter' if is_setter else 'executor'
+        return {'statusCode': 200, 'headers': cors, 'body': json.dumps({
+            'role': role, 'id': assignee_id, 'name': name, 'email': email
+        })}
+
+    # POST ?action=set_password — первичная установка пароля
+    if method == 'POST' and params.get('action') == 'set_password':
+        body = json.loads(event.get('body') or '{}')
+        email_raw = (body.get('email') or '').strip().lower()
+        password = (body.get('password') or '').strip()
+
+        if not email_raw or not password:
+            conn.close()
+            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'email and password required'})}
+
+        if len(password) < 4:
+            conn.close()
+            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'password_too_short'})}
+
+        cur.execute(
+            "SELECT id, name, email, is_setter, password_hash FROM assignees "
+            "WHERE LOWER(email) = %s AND email IS NOT NULL ORDER BY id DESC LIMIT 1",
+            (email_raw,)
+        )
+        row = cur.fetchone()
+
+        if not row:
+            conn.close()
+            return {'statusCode': 403, 'headers': cors, 'body': json.dumps({'error': 'not_allowed'})}
+
+        assignee_id, name, email, is_setter, password_hash = row
+
+        if password_hash:
+            conn.close()
+            return {'statusCode': 409, 'headers': cors, 'body': json.dumps({'error': 'password_already_set'})}
+
+        hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        cur.execute("UPDATE assignees SET password_hash = %s WHERE id = %s", (hashed, assignee_id))
+        conn.commit()
+        conn.close()
+
+        role = 'setter' if is_setter else 'executor'
+        return {'statusCode': 200, 'headers': cors, 'body': json.dumps({
+            'role': role, 'id': assignee_id, 'name': name, 'email': email
+        })}
 
     conn.close()
     return {'statusCode': 405, 'headers': cors, 'body': json.dumps({'error': 'Method not allowed'})}

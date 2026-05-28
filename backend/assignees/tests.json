@@ -8,17 +8,18 @@
       "bodyMatcher": "none"
     },
     {
-      "name": "Login setter by email",
-      "method": "GET",
-      "path": "/?action=login&email=1@dosfond.ru",
-      "expectedStatus": 200,
-      "expectedBody": {"role": "setter"},
-      "bodyMatcher": "partial"
+      "name": "Login without body returns 400",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {},
+      "expectedStatus": 400,
+      "bodyMatcher": "none"
     },
     {
       "name": "Login unknown email returns 403",
-      "method": "GET",
-      "path": "/?action=login&email=unknown@example.com",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"email": "unknown@example.com", "password": "test"},
       "expectedStatus": 403,
       "bodyMatcher": "none"
     }
