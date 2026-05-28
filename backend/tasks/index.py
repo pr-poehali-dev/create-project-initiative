@@ -6,31 +6,126 @@ import psycopg2
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
-def send_email(to_email: str, to_name: str, task_title: str, deadline: str, status: str, setter_email: str):
+def send_email(to_email: str, to_name: str, task_title: str, deadline: str, status: str, setter_name: str):
     """Отправляет email через Resend API."""
     import sys
     api_key = os.environ.get("RESEND_API_KEY", "")
     if not api_key:
         print(f"[EMAIL] ERROR: RESEND_API_KEY not set", file=sys.stderr)
         return
-    html = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
-      <div style="background: #1E3A5F; border-radius: 8px; padding: 20px 24px; margin-bottom: 24px;">
-        <h2 style="color: white; margin: 0; font-size: 18px;">📋 Новая задача</h2>
-        <p style="color: rgba(255,255,255,0.6); margin: 4px 0 0; font-size: 12px;">Журнал задач · ДОС Фонд</p>
-      </div>
-      <h3 style="color: #1E3A5F; font-size: 16px; margin: 0 0 16px;">{task_title}</h3>
-      <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #444;">
-        <tr><td style="padding: 6px 0; color: #888;">Срок:</td><td style="padding: 6px 0; font-weight: bold; color: #1E3A5F;">{deadline}</td></tr>
-        <tr><td style="padding: 6px 0; color: #888;">Статус:</td><td style="padding: 6px 0;">{status}</td></tr>
-        <tr><td style="padding: 6px 0; color: #888;">Постановщик:</td><td style="padding: 6px 0;">{setter_email}</td></tr>
+
+    status_colors = {
+        "Новая": "#1E3A5F",
+        "В работе": "#1A5276",
+        "На проверке": "#7D6608",
+        "Выполнена": "#145A32",
+        "Просрочена": "#7B241C",
+    }
+    status_bgs = {
+        "Новая": "#E8EFF7",
+        "В работе": "#D6EAF8",
+        "На проверке": "#FEF9E7",
+        "Выполнена": "#E9F7EF",
+        "Просрочена": "#FDEDEC",
+    }
+    sc = status_colors.get(status, "#444")
+    sb = status_bgs.get(status, "#f5f5f5")
+
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F4F6F9;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F9;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+
+        <!-- Шапка -->
+        <tr>
+          <td style="background:#1E3A5F;padding:28px 32px;">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.55);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">ДОС Фонд · Журнал задач</div>
+                  <div style="font-size:22px;font-weight:700;color:#ffffff;">📋 Новая задача</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Приветствие -->
+        <tr>
+          <td style="padding:28px 32px 0;">
+            <p style="margin:0;font-size:16px;color:#1E3A5F;font-weight:600;line-height:1.5;">
+              Привет, коллега! 👋
+            </p>
+            <p style="margin:8px 0 0;font-size:14px;color:#555;line-height:1.6;">
+              Лови задачу от <strong style="color:#1E3A5F;">{setter_name}</strong>
+            </p>
+          </td>
+        </tr>
+
+        <!-- Название задачи -->
+        <tr>
+          <td style="padding:20px 32px 0;">
+            <div style="background:#F4F6F9;border-left:4px solid #1E3A5F;border-radius:0 8px 8px 0;padding:16px 20px;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Задача</div>
+              <div style="font-size:17px;font-weight:700;color:#1E3A5F;line-height:1.4;">{task_title}</div>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Детали -->
+        <tr>
+          <td style="padding:20px 32px 0;">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td width="50%" style="padding-right:8px;">
+                  <div style="background:#F4F6F9;border-radius:8px;padding:14px 16px;">
+                    <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">📅 Срок</div>
+                    <div style="font-size:16px;font-weight:700;color:#1E3A5F;">{deadline}</div>
+                  </div>
+                </td>
+                <td width="50%" style="padding-left:8px;">
+                  <div style="background:{sb};border-radius:8px;padding:14px 16px;">
+                    <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">🏷 Статус</div>
+                    <div style="font-size:15px;font-weight:700;color:{sc};">{status}</div>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Кнопка -->
+        <tr>
+          <td style="padding:28px 32px;">
+            <a href="https://poehali.dev" style="display:inline-block;background:#1E3A5F;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;">
+              Открыть журнал задач →
+            </a>
+          </td>
+        </tr>
+
+        <!-- Подвал -->
+        <tr>
+          <td style="border-top:1px solid #EAECF0;padding:20px 32px;">
+            <p style="margin:0;font-size:12px;color:#aaa;line-height:1.6;">
+              Это автоматическое письмо от системы управления задачами ДОС Фонда.<br>
+              Пожалуйста, не отвечайте на него.
+            </p>
+          </td>
+        </tr>
+
       </table>
-    </div>
-    """
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
     payload = json.dumps({
-        "from": "Журнал задач <tasks@dosfond.ru>",
-        "to": [{"email": to_email, "name": to_name}],
-        "subject": f"📋 Новая задача: {task_title}",
+        "from": "Журнал задач ДОС Фонд <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": f"Новая задача для тебя: {task_title}",
         "html": html,
     }).encode()
     req = urllib.request.Request(
@@ -59,8 +154,15 @@ def notify_assignee(cur, assignee_id, task_title: str, deadline: str, status: st
     if not email:
         print(f"[EMAIL] {name} has no email", file=sys.stderr)
         return
+    # Получаем имя постановщика по его email
+    setter_name = setter_email
+    if setter_email:
+        cur.execute("SELECT name FROM assignees WHERE LOWER(email) = %s LIMIT 1", (setter_email.lower(),))
+        sr = cur.fetchone()
+        if sr:
+            setter_name = sr[0]
     print(f"[EMAIL] notify_assignee: sending to {name} ({email})", file=sys.stderr)
-    send_email(email, name, task_title, deadline, status, setter_email)
+    send_email(email, name, task_title, deadline, status, setter_name)
 
 def fmt_deadline(d):
     parts = str(d).split("-")
