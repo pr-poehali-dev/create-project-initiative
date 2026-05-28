@@ -8,17 +8,17 @@
       "bodyMatcher": "none"
     },
     {
-      "name": "Login setter vyacheslav_dof",
+      "name": "Login setter by email",
       "method": "GET",
-      "path": "/?action=login&tg=@vyacheslav_dof",
+      "path": "/?action=login&email=1@dosfond.ru",
       "expectedStatus": 200,
       "expectedBody": {"role": "setter"},
       "bodyMatcher": "partial"
     },
     {
-      "name": "Login unknown user returns 403",
+      "name": "Login unknown email returns 403",
       "method": "GET",
-      "path": "/?action=login&tg=@unknown_user_xyz",
+      "path": "/?action=login&email=unknown@example.com",
       "expectedStatus": 403,
       "bodyMatcher": "none"
     }

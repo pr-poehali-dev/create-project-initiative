@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
-import LoginScreen, { Assignee } from "@/components/journal/LoginScreen";
+import LoginScreen, { Assignee, CurrentUser } from "@/components/journal/LoginScreen";
 import AppHeader from "@/components/journal/AppHeader";
 import TaskModal, { TaskForm } from "@/components/journal/TaskModal";
 import ViewTaskModal, { Comment, ViewTask } from "@/components/journal/ViewTaskModal";
@@ -153,7 +153,7 @@ function parseVoiceText(raw: string, assignees: { id: number; name: string; tele
   return { title: text || raw.trim(), status: foundStatus, deadline: foundDeadline, assignee_id: foundAssigneeId };
 }
 
-function useVoiceInput(onResult: (parsed: VoiceParsed) => void, assignees: { id: number; name: string; telegram_username: string }[] = []) {
+function useVoiceInput(onResult: (parsed: VoiceParsed) => void, assignees: { id: number; name: string; email: string }[] = []) {
   const [listening, setListening] = useState(false);
   const recRef = useRef<SpeechRecognition | null>(null);
   const assigneesRef = useRef(assignees);
@@ -188,7 +188,7 @@ function useVoiceInput(onResult: (parsed: VoiceParsed) => void, assignees: { id:
 // ─── Главный компонент ────────────────────────────────────────────────────────
 
 export default function Index() {
-  const [currentUser, setCurrentUser] = useState<{ role: "setter" | "executor"; tg: string; assignee?: Assignee } | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
@@ -254,7 +254,7 @@ export default function Index() {
     }
   }, [currentUser]);
 
-  function handleEnter(user: { role: "setter" | "executor"; tg: string; assignee?: Assignee }) {
+  function handleEnter(user: CurrentUser) {
     localStorage.setItem(LS_KEY, JSON.stringify(user));
     setCurrentUser(user);
   }
@@ -315,7 +315,7 @@ export default function Index() {
       deadline: taskForm.deadline,
       status: taskForm.status,
       assignee_id: taskForm.assignee_id || null,
-      setter_tg: currentUser?.tg ?? "",
+      setter_email: currentUser?.email ?? "",
     };
     if (editTask) {
       body.id = editTask.id;
@@ -339,7 +339,7 @@ export default function Index() {
   }
 
   async function completeTask(task: Task) {
-    const body = { id: task.id, status: "Выполнена", setter_tg: currentUser?.tg ?? "" };
+    const body = { id: task.id, status: "Выполнена", setter_email: currentUser?.email ?? "" };
     const res = await fetch(API_TASKS, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const raw = await res.json();
     const updated: Task = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -459,7 +459,7 @@ export default function Index() {
                   className="border border-gray-300 rounded px-3 py-2 text-sm text-[#1E3A5F] bg-white focus:outline-none focus:border-[#1E3A5F] w-full md:min-w-[200px]"
                 >
                   <option value="all">Все исполнители</option>
-                  {assignees.map(a => <option key={a.id} value={String(a.id)}>{a.name} ({a.telegram_username})</option>)}
+                  {assignees.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
                 </select>
               </div>
             )}

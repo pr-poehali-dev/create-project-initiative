@@ -1,8 +1,8 @@
 import Icon from "@/components/ui/icon";
-import { Assignee } from "./LoginScreen";
+import { CurrentUser } from "./LoginScreen";
 
 export interface AppHeaderProps {
-  currentUser: { role: "setter" | "executor"; tg: string; assignee?: Assignee };
+  currentUser: CurrentUser;
   isAdmin: boolean;
   listening: boolean;
   onStartVoice: () => void;
@@ -34,8 +34,8 @@ export default function AppHeader({
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 bg-white/10 border border-white/20 px-2.5 py-1.5 rounded">
-            <Icon name="Send" size={12} className="text-white/60" />
-            <span className="text-white/80 font-mono text-xs">@{currentUser.tg}</span>
+            <Icon name="User" size={12} className="text-white/60" />
+            <span className="text-white/80 text-xs">{currentUser.name}</span>
           </div>
           {isAdmin && (
             <>

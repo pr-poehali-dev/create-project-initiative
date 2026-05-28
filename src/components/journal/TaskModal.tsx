@@ -77,7 +77,7 @@ export default function TaskModal({
             >
               <option value="">Не назначен</option>
               {assignees.map(a => (
-                <option key={a.id} value={String(a.id)}>{a.name} — {a.telegram_username}</option>
+                <option key={a.id} value={String(a.id)}>{a.name} — {a.email}</option>
               ))}
             </select>
           </div>

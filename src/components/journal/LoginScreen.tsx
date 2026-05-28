@@ -6,29 +6,36 @@ const API_ASSIGNEES = "https://functions.poehali.dev/defb4901-3a86-4c40-923f-96c
 export interface Assignee {
   id: number;
   name: string;
-  telegram_username: string;
-  telegram_chat_id?: number | null;
+  email: string;
+}
+
+export interface CurrentUser {
+  role: "setter" | "executor";
+  id: number;
+  name: string;
+  email: string;
+  assignee?: Assignee;
 }
 
 export interface LoginScreenProps {
-  onEnter: (user: { role: "setter" | "executor"; tg: string; assignee?: Assignee }) => void;
+  onEnter: (user: CurrentUser) => void;
 }
 
 export default function LoginScreen({ onEnter }: LoginScreenProps) {
-  const [tg, setTg] = useState("");
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function handleLogin() {
-    const clean = tg.trim().lstrip?.("@") ?? tg.trim().replace(/^@/, "");
+    const clean = email.trim().toLowerCase();
     if (!clean) return;
     setLoading(true);
     setError("");
-    const res = await fetch(`${API_ASSIGNEES}?action=login&tg=@${clean}`);
+    const res = await fetch(`${API_ASSIGNEES}?action=login&email=${encodeURIComponent(clean)}`);
     const data = await res.json();
     setLoading(false);
     if (res.status === 403 || data.error === "not_allowed") {
-      setError("Тебя нет в списке пользователей системы.");
+      setError("Этот email не найден в системе.");
       return;
     }
     if (!res.ok) {
@@ -36,9 +43,10 @@ export default function LoginScreen({ onEnter }: LoginScreenProps) {
       return;
     }
     if (data.role === "setter") {
-      onEnter({ role: "setter", tg: clean });
+      onEnter({ role: "setter", id: data.id, name: data.name, email: data.email });
     } else {
-      onEnter({ role: "executor", tg: clean, assignee: data });
+      const assignee: Assignee = { id: data.id, name: data.name, email: data.email };
+      onEnter({ role: "executor", id: data.id, name: data.name, email: data.email, assignee });
     }
   }
 
@@ -56,33 +64,31 @@ export default function LoginScreen({ onEnter }: LoginScreenProps) {
         </div>
 
         <h2 className="text-[#1E3A5F] font-bold text-xl mb-1">Вход</h2>
-        <p className="text-gray-500 text-sm mb-6">Введи свой Telegram username</p>
+        <p className="text-gray-500 text-sm mb-6">Введи свой рабочий email</p>
 
         <div className="flex flex-col gap-4">
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Telegram username</label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm">@</span>
-              <input
-                value={tg.replace(/^@/, "")}
-                onChange={e => setTg(e.target.value.replace(/^@/, ""))}
-                onKeyDown={e => { if (e.key === "Enter") handleLogin(); }}
-                placeholder="username"
-                className="w-full border border-gray-300 rounded-lg pl-8 pr-3.5 py-3 text-sm font-mono text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
-              />
-            </div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleLogin(); }}
+              placeholder="you@dosfond.ru"
+              className="w-full border border-gray-300 rounded-lg px-3.5 py-3 text-sm text-[#1A5276] focus:outline-none focus:border-[#1E3A5F] placeholder:text-gray-300"
+            />
           </div>
           {error && <p className="text-[#7B241C] text-xs bg-[#FDEDEC] rounded px-3 py-2">{error}</p>}
           <button
             onClick={handleLogin}
-            disabled={!tg.replace(/^@/, "").trim() || loading}
+            disabled={!email.trim() || loading}
             className="w-full bg-[#1E3A5F] text-white rounded-xl py-3 font-semibold hover:bg-[#16304F] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? "Проверяем..." : "Войти"}
           </button>
           <div className="bg-[#F4F6F9] rounded-lg px-4 py-3 text-[11px] text-gray-500 flex items-start gap-2">
             <Icon name="Info" size={13} className="text-gray-400 shrink-0 mt-0.5" />
-            <span>Доступ только для сотрудников ДОС Фонда. Используй свой Telegram username без @.</span>
+            <span>Доступ только для сотрудников ДОС Фонда. Используй корпоративный email.</span>
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import Icon from "@/components/ui/icon";
-import { Assignee } from "./LoginScreen";
+import { CurrentUser } from "./LoginScreen";
 
 type Status = "Новая" | "В работе" | "На проверке" | "Выполнена" | "Просрочена";
 
@@ -40,7 +40,7 @@ export interface ViewTask {
 
 export interface ViewTaskModalProps {
   viewTask: ViewTask;
-  currentUser: { role: "setter" | "executor"; tg: string; assignee?: Assignee };
+  currentUser: CurrentUser;
   comments: Comment[];
   commentsLoading: boolean;
   commentText: string;

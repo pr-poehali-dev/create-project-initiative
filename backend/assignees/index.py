@@ -2,36 +2,11 @@ import json
 import os
 import psycopg2
 
-# Фиксированный список пользователей
-SETTERS = ["vyacheslav_dof", "big_nick87"]
-ALLOWED_EXECUTORS = ["oleg_petrovisch", "abramovakatya03", "ozxcvb19"]
-
-EXECUTOR_NAMES = {
-    "oleg_petrovisch": "Олег",
-    "abramovakatya03": "Екатерина",
-    "ozxcvb19": "Пользователь",
-}
-
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
-def send_telegram_message(chat_id: int, text: str):
-    import urllib.request
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    if not token or not chat_id:
-        return
-    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
-    req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=payload, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    try:
-        urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
-
 def handler(event: dict, context) -> dict:
-    """Управление исполнителями: вход по TG-username, webhook бота, список."""
+    """Управление исполнителями: вход по email, список исполнителей."""
     cors = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -47,131 +22,44 @@ def handler(event: dict, context) -> dict:
     conn = get_conn()
     cur = conn.cursor()
 
-    # GET ?action=botinfo — узнать username бота
-    if method == 'GET' and params.get('action') == 'botinfo':
-        import urllib.request as ur
-        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        if not token:
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': 'no token'})}
-        try:
-            r = ur.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
-            data = json.loads(r.read())
-            username = data.get("result", {}).get("username", "")
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'bot_url': f"https://t.me/{username}", 'username': username})}
-        except Exception as e:
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': str(e)})}
-
-    # GET /assignees — только исполнители с telegram_username (зарегистрированные)
+    # GET /assignees — только исполнители с email (не постановщики)
     if method == 'GET' and not params.get('action'):
         cur.execute(
-            "SELECT id, name, telegram_username, telegram_chat_id FROM assignees "
-            "WHERE is_setter = FALSE AND telegram_username IS NOT NULL ORDER BY name"
+            "SELECT id, name, email FROM assignees "
+            "WHERE is_setter = FALSE AND email IS NOT NULL ORDER BY name"
         )
         rows = cur.fetchall()
-        data = [{'id': r[0], 'name': r[1], 'telegram_username': r[2], 'telegram_chat_id': r[3]} for r in rows]
+        data = [{'id': r[0], 'name': r[1], 'email': r[2]} for r in rows]
         conn.close()
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps(data, ensure_ascii=False)}
 
-    # GET ?action=login&tg=@username — вход по TG-username
+    # GET ?action=login&email=... — вход по email
     if method == 'GET' and params.get('action') == 'login':
-        tg_raw = (params.get('tg') or '').strip().lstrip('@').lower()
-        if not tg_raw:
+        email_raw = (params.get('email') or '').strip().lower()
+        if not email_raw:
             conn.close()
-            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'tg required'})}
+            return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'email required'})}
 
-        # Постановщик
-        if tg_raw in SETTERS:
-            cur.execute("SELECT id FROM assignees WHERE LOWER(telegram_username) = %s", (f"@{tg_raw}",))
-            if not cur.fetchone():
-                name = "Вячеслав" if tg_raw == "vyacheslav_dof" else "Николай"
-                cur.execute(
-                    "INSERT INTO assignees (name, tag, telegram_username, is_setter) VALUES (%s, %s, %s, TRUE)",
-                    (name, f"@{tg_raw}", f"@{tg_raw}")
-                )
-                conn.commit()
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'role': 'setter', 'tg': tg_raw})}
-
-        # Исполнитель не из списка
-        if tg_raw not in ALLOWED_EXECUTORS:
-            conn.close()
-            return {'statusCode': 403, 'headers': cors, 'body': json.dumps({'error': 'not_allowed'})}
-
-        # Ищем или создаём исполнителя
         cur.execute(
-            "SELECT id, name, telegram_username, telegram_chat_id FROM assignees "
-            "WHERE LOWER(telegram_username) = %s",
-            (f"@{tg_raw}",)
+            "SELECT id, name, email, is_setter FROM assignees "
+            "WHERE LOWER(email) = %s ORDER BY id LIMIT 1",
+            (email_raw,)
         )
         row = cur.fetchone()
+        conn.close()
+
         if not row:
-            name = EXECUTOR_NAMES.get(tg_raw, tg_raw)
-            cur.execute(
-                "INSERT INTO assignees (name, tag, telegram_username, is_setter) VALUES (%s, %s, %s, FALSE) "
-                "RETURNING id, name, telegram_username, telegram_chat_id",
-                (name, f"@{tg_raw}", f"@{tg_raw}")
-            )
-            row = cur.fetchone()
-            conn.commit()
+            return {'statusCode': 403, 'headers': cors, 'body': json.dumps({'error': 'not_allowed'})}
 
-        conn.close()
-        return {'statusCode': 200, 'headers': cors, 'body': json.dumps({
-            'role': 'executor',
-            'id': row[0], 'name': row[1], 'telegram_username': row[2], 'telegram_chat_id': row[3]
-        })}
-
-    # GET ?action=register_webhook — зарегистрировать webhook у Telegram
-    if method == 'GET' and params.get('action') == 'register_webhook':
-        import urllib.request as ur
-        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        webhook_url = params.get('url', '')
-        if not token or not webhook_url:
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': 'token or url missing'})}
-        payload = json.dumps({"url": webhook_url}).encode()
-        req = ur.Request(
-            f"https://api.telegram.org/bot{token}/setWebhook",
-            data=payload, headers={"Content-Type": "application/json"}, method="POST"
-        )
-        try:
-            r = ur.urlopen(req, timeout=10)
-            result = json.loads(r.read())
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps(result)}
-        except Exception as e:
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'error': str(e)})}
-
-    # POST ?action=webhook — обработка обновлений от Telegram-бота
-    if method == 'POST' and params.get('action') == 'webhook':
-        try:
-            body = json.loads(event.get('body') or '{}')
-        except Exception:
-            conn.close()
-            return {'statusCode': 200, 'headers': cors, 'body': '{}'}
-
-        message = body.get('message') or {}
-        from_user = message.get('from') or {}
-        chat = message.get('chat') or {}
-        chat_id = chat.get('id')
-        username = (from_user.get('username') or '').lower()
-
-        if chat_id and username:
-            cur.execute(
-                "UPDATE assignees SET telegram_chat_id = %s WHERE LOWER(telegram_username) = %s "
-                "RETURNING id, name",
-                (chat_id, f"@{username}")
-            )
-            row = cur.fetchone()
-            conn.commit()
-            if row:
-                send_telegram_message(chat_id, f"Привет, {row[1]}! Теперь я буду присылать тебе уведомления о новых задачах.")
-
-        conn.close()
-        return {'statusCode': 200, 'headers': cors, 'body': '{}'}
+        assignee_id, name, email, is_setter = row
+        if is_setter:
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({
+                'role': 'setter', 'id': assignee_id, 'name': name, 'email': email
+            })}
+        else:
+            return {'statusCode': 200, 'headers': cors, 'body': json.dumps({
+                'role': 'executor', 'id': assignee_id, 'name': name, 'email': email
+            })}
 
     conn.close()
     return {'statusCode': 405, 'headers': cors, 'body': json.dumps({'error': 'Method not allowed'})}

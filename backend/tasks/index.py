@@ -6,7 +6,7 @@ import psycopg2
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
-def send_email(to_email: str, to_name: str, task_title: str, deadline: str, status: str, setter_tg: str):
+def send_email(to_email: str, to_name: str, task_title: str, deadline: str, status: str, setter_email: str):
     """Отправляет email через Resend API."""
     import sys
     api_key = os.environ.get("RESEND_API_KEY", "")
@@ -23,7 +23,7 @@ def send_email(to_email: str, to_name: str, task_title: str, deadline: str, stat
       <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #444;">
         <tr><td style="padding: 6px 0; color: #888;">Срок:</td><td style="padding: 6px 0; font-weight: bold; color: #1E3A5F;">{deadline}</td></tr>
         <tr><td style="padding: 6px 0; color: #888;">Статус:</td><td style="padding: 6px 0;">{status}</td></tr>
-        <tr><td style="padding: 6px 0; color: #888;">Постановщик:</td><td style="padding: 6px 0;">@{setter_tg}</td></tr>
+        <tr><td style="padding: 6px 0; color: #888;">Постановщик:</td><td style="padding: 6px 0;">{setter_email}</td></tr>
       </table>
     </div>
     """
@@ -45,7 +45,7 @@ def send_email(to_email: str, to_name: str, task_title: str, deadline: str, stat
     except Exception as e:
         print(f"[EMAIL] ERROR sending to {to_email}: {e}", file=sys.stderr)
 
-def notify_assignee(cur, assignee_id, task_title: str, deadline: str, status: str, setter_tg: str):
+def notify_assignee(cur, assignee_id, task_title: str, deadline: str, status: str, setter_email: str):
     """Отправляет уведомление исполнителю по email."""
     import sys
     if not assignee_id:
@@ -60,7 +60,7 @@ def notify_assignee(cur, assignee_id, task_title: str, deadline: str, status: st
         print(f"[EMAIL] {name} has no email", file=sys.stderr)
         return
     print(f"[EMAIL] notify_assignee: sending to {name} ({email})", file=sys.stderr)
-    send_email(email, name, task_title, deadline, status, setter_tg)
+    send_email(email, name, task_title, deadline, status, setter_email)
 
 def fmt_deadline(d):
     parts = str(d).split("-")
@@ -149,7 +149,7 @@ def handler(event: dict, context) -> dict:
         deadline = body.get('deadline')
         assignee_id = body.get('assignee_id') or None
         status = body.get('status', 'Новая')
-        setter_tg = body.get('setter_tg', '')
+        setter_email = body.get('setter_email', '')
 
         if not title or not deadline:
             conn.close()
@@ -171,7 +171,7 @@ def handler(event: dict, context) -> dict:
         r = cur.fetchone()
 
         if assignee_id:
-            notify_assignee(cur, assignee_id, title, fmt_deadline(r[2]), status, setter_tg)
+            notify_assignee(cur, assignee_id, title, fmt_deadline(r[2]), status, setter_email)
 
         conn.close()
         result = {'id': r[0], 'title': r[1], 'deadline': str(r[2]), 'status': r[3], 'created_at': str(r[4]),
@@ -182,7 +182,7 @@ def handler(event: dict, context) -> dict:
     if method == 'PUT':
         body = json.loads(event.get('body') or '{}')
         task_id = body.get('id')
-        setter_tg = body.get('setter_tg', '')
+        setter_email = body.get('setter_email', '')
         if not task_id:
             conn.close()
             return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'id required'})}
@@ -217,7 +217,7 @@ def handler(event: dict, context) -> dict:
         # Уведомляем только если исполнитель изменился (новое назначение)
         assignee_changed = 'assignee_id' in body and str(new_assignee_id) != str(old_assignee_id)
         if r[5] and assignee_changed and r[3] != 'Выполнена':
-            notify_assignee(cur, r[5], r[1], fmt_deadline(r[2]), r[3], setter_tg)
+            notify_assignee(cur, r[5], r[1], fmt_deadline(r[2]), r[3], setter_email)
 
         conn.close()
         result = {'id': r[0], 'title': r[1], 'deadline': str(r[2]), 'status': r[3], 'created_at': str(r[4]),
