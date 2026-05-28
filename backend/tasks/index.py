@@ -6,53 +6,61 @@ import psycopg2
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
-def send_telegram(chat_id: int, text: str):
-    """Отправляет сообщение в Telegram по числовому chat_id."""
+def send_email(to_email: str, to_name: str, task_title: str, deadline: str, status: str, setter_tg: str):
+    """Отправляет email через Resend API."""
     import sys
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    if not token:
-        print(f"[TG] ERROR: TELEGRAM_BOT_TOKEN not set", file=sys.stderr)
+    api_key = os.environ.get("RESEND_API_KEY", "")
+    if not api_key:
+        print(f"[EMAIL] ERROR: RESEND_API_KEY not set", file=sys.stderr)
         return
-    if not chat_id:
-        print(f"[TG] ERROR: chat_id is empty", file=sys.stderr)
-        return
-    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
+    html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
+      <div style="background: #1E3A5F; border-radius: 8px; padding: 20px 24px; margin-bottom: 24px;">
+        <h2 style="color: white; margin: 0; font-size: 18px;">📋 Новая задача</h2>
+        <p style="color: rgba(255,255,255,0.6); margin: 4px 0 0; font-size: 12px;">Журнал задач · ДОС Фонд</p>
+      </div>
+      <h3 style="color: #1E3A5F; font-size: 16px; margin: 0 0 16px;">{task_title}</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #444;">
+        <tr><td style="padding: 6px 0; color: #888;">Срок:</td><td style="padding: 6px 0; font-weight: bold; color: #1E3A5F;">{deadline}</td></tr>
+        <tr><td style="padding: 6px 0; color: #888;">Статус:</td><td style="padding: 6px 0;">{status}</td></tr>
+        <tr><td style="padding: 6px 0; color: #888;">Постановщик:</td><td style="padding: 6px 0;">@{setter_tg}</td></tr>
+      </table>
+    </div>
+    """
+    payload = json.dumps({
+        "from": "Журнал задач <tasks@dosfond.ru>",
+        "to": [{"email": to_email, "name": to_name}],
+        "subject": f"📋 Новая задача: {task_title}",
+        "html": html,
+    }).encode()
     req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
+        "https://api.resend.com/emails",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST"
     )
     try:
         resp = urllib.request.urlopen(req, timeout=10)
-        print(f"[TG] sent to chat_id={chat_id}, status={resp.status}", file=sys.stderr)
+        print(f"[EMAIL] sent to {to_email}, status={resp.status}", file=sys.stderr)
     except Exception as e:
-        print(f"[TG] ERROR sending to chat_id={chat_id}: {e}", file=sys.stderr)
+        print(f"[EMAIL] ERROR sending to {to_email}: {e}", file=sys.stderr)
 
 def notify_assignee(cur, assignee_id, task_title: str, deadline: str, status: str, setter_tg: str):
-    """Отправляет уведомление исполнителю если у него есть telegram_chat_id."""
+    """Отправляет уведомление исполнителю по email."""
     import sys
     if not assignee_id:
-        print(f"[TG] notify_assignee: assignee_id is empty", file=sys.stderr)
         return
-    cur.execute("SELECT name, telegram_chat_id, telegram_username FROM assignees WHERE id = %s", (assignee_id,))
+    cur.execute("SELECT name, email FROM assignees WHERE id = %s", (assignee_id,))
     row = cur.fetchone()
     if not row:
-        print(f"[TG] notify_assignee: assignee id={assignee_id} not found", file=sys.stderr)
+        print(f"[EMAIL] assignee id={assignee_id} not found", file=sys.stderr)
         return
-    name, chat_id, tg_username = row
-    if not chat_id:
-        print(f"[TG] notify_assignee: {name} ({tg_username}) has no telegram_chat_id — они не писали боту /start", file=sys.stderr)
+    name, email = row
+    if not email:
+        print(f"[EMAIL] {name} has no email", file=sys.stderr)
         return
-    text = (
-        f"\U0001f4cb *Новая задача*\n\n"
-        f"*{task_title}*\n\n"
-        f"\U0001f4c5 Срок: {deadline}\n"
-        f"\U0001f516 Статус: {status}\n"
-        f"\U0001f464 Постановщик: @{setter_tg}"
-    )
-    print(f"[TG] notify_assignee: sending to {name} (chat_id={chat_id})", file=sys.stderr)
-    send_telegram(chat_id, text)
+    print(f"[EMAIL] notify_assignee: sending to {name} ({email})", file=sys.stderr)
+    send_email(email, name, task_title, deadline, status, setter_tg)
 
 def fmt_deadline(d):
     parts = str(d).split("-")
